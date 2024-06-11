@@ -1,0 +1,3 @@
+* References
+- [[https://nbdev.fast.ai/tutorials/tutorial.html][nbdev]] (Create delightful software with Jupyter Notebooks)
+  - [[https://hallmx.github.io/nbd_colab/][nbd_colab]]
