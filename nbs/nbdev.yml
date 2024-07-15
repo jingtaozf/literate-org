@@ -1,9 +1,0 @@
-project:
-  output-dir: _docs
-
-website:
-  title: "literate-python"
-  site-url: "https://jingtaozf.github.io/literate-python"
-  description: "a literate programming tool for python"
-  repo-branch: main
-  repo-url: "https://github.com/jingtaozf/literate-python"

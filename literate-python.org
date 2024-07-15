@@ -1,0 +1,581 @@
+# -*- Mode: POLY-ORG ; common-lisp-style: elisp; indent-tabs-mode: nil;  -*- ---
+#+Title: Load python modules from org files
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: latexpreview
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_PYTHON_EXPORT_DIRECTORY: ./literate_python
+
+* Introduction
+I have used an org file to write my document and code for a long time, in various languages.
+
+It is very convenient to write code in an org file.
+For example, instead of managing multiple files in nested directories,
+I can write code in an org file with a clear structure in a more lightweight way.
+Also, it can contain both documentation and code in one file for all my projects.
+
+Now I want to use org file to write Python code,
+and I want to import Python modules from an org file for my projects.
+
+So comes this library to help me import Python modules from org files in Emacs.
+* Python library for importing modules from org files
+** Idea
+Python has a flexible module import system that allows you to customize how modules are imported.
+This enables us to import modules from a different file format (e.g. an org file).
+
+This approach allows you to maintain and organize your Python code blocks in different modules within one .org file
+while dynamically loading it into Python’s namespace.
+It leverages Emacs’ powerful editing capabilities along with
+Python’s flexible import system to create a seamless workflow for developing and running Python code.
+
+We also provide a way to execute Python code blocks in org files within specified Python modules,
+to allow for a more interactive development experience.
+** Prototype
+Let's do some tests in Python.
+
+1. import the necessary modules
+#+BEGIN_SRC python
+import sys
+import importlib
+#+END_SRC
+
+2. create a new module dynamically
+#+BEGIN_SRC python
+spec_module_a = importlib.util.spec_from_loader("module_a", loader=None)
+module_a = importlib.util.module_from_spec(spec_module_a)
+sys.modules["module_a"] = module_a
+#+END_SRC
+
+3. add a function to the module
+#+BEGIN_SRC python
+exec('def say_hello(): print("Hello from module_a.")', module_a.__dict__)
+exec('def a(): return 3', module_a.__dict__)
+exec('def b(): return 4 + a()', module_a.__dict__)
+#+END_SRC
+4. run this function
+#+BEGIN_SRC python
+from module_a import say_hello
+from module_a import b
+say_hello()
+b()
+#+END_SRC
+
+It works well.
+** Module Layout in an Org file
+We can organize Python code blocks in org files in the following way:
+- The org sections are used to separate different modules.
+  - The org sections has the same hierarchy as the Python modules.
+  - The Python module name is defined in the property with name =LITERATE_PYTHON_MODULE= in the section.
+- The Python code blocks in each section are used to define the functions and classes in the module.
+- A code block is loaded conditionally by the org property =LITERATE_PYTHON_LOAD= or header argument =load=.
+    - The property is not set.
+    - The property is set to =yes=.
+    - The property is found in the environment =LITERATE_PYTHON_LOAD=.
+
+For example      
+#+BEGIN_EXAMPLE
+ * Module A
+   :PROPERTIES:
+   :LITERATE_PYTHON_MODULE: module_a
+   :END:
+  ** Module A.a
+   :PROPERTIES:
+   :LITERATE_PYTHON_MODULE: module_a.a
+   :END:
+  *** a function for module A.a
+   ,#+BEGIN_SRC python
+   def say_hello():
+        print("Hello from module_a.a.")
+   ,#+END_SRC
+  *** a test code for above function
+   ,#+BEGIN_SRC python :load test
+   say_hello()
+   ,#+END_SRC
+#+END_EXAMPLE
+** Implementation
+:PROPERTIES:
+:LITERATE_PYTHON_MODULE: lpy
+:END:
+*** Package for customized org-file import
+:PROPERTIES:
+:LITERATE_PYTHON_EXPORT_PACKAGE: org_importer
+:END:
+**** import dependent packages
+#+BEGIN_SRC python
+import sys
+import os
+import importlib.abc
+import importlib.util
+import orgparse
+from collections import defaultdict
+#+END_SRC
+**** a function to parse an org file
+#+BEGIN_SRC python
+
+#+END_SRC
+*** The Emacs interface for org importer
+:PROPERTIES:
+:literate-lang: elisp
+:END:
+**** Import required elisp libraries
+#+BEGIN_SRC elisp
+(require 'ob-python)
+(require 'lsp);; for `lsp-workspace-root'
+#+END_SRC
+**** Source Code Execution
+***** execute source codes in specified module for org-babel-python-evaluate
+#+BEGIN_SRC elisp
+(defun literate-python-setup-org-babel ()
+  (setf org-babel-python--exec-tmpfile
+        "\
+with open('%s') as __org_babel_python_tmpfile:
+    exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'))"))
+#+END_SRC
+***** execute source codes in current code block
+We have to switch back to org buffer, otherwise =org-babel-execute-src-block-maybe= will report a message and
+override our own compilation report.
+#+BEGIN_SRC elisp
+(defun literate-python-execute-current-code-block ()
+  (interactive)
+  (let* ((element (org-element-at-point))
+         (info (second element))
+         (begin (plist-get info :begin)))
+    (save-excursion
+      (goto-char begin)
+      (pm-set-buffer (point))
+      (org-babel-execute-src-block-maybe))))
+#+END_SRC
+***** get top level python code
+#+BEGIN_SRC elisp
+(defun literate-python-get-top-level-node-at-point ()
+  "Get the current top level node at point, return a cons of start and end position."
+  (let* ((node (treesit-node-at (point)))
+         (parent (treesit-node-parent node)))
+    (while (and parent (not (equal "module" (treesit-node-type parent))))
+      (setq node parent)
+      (setq parent (treesit-node-parent node)))
+    node))
+#+END_SRC
+***** how to run python code in a namespace
+#+BEGIN_SRC elisp
+(defconst literate-python--exec-tmpfile-in-a-module "\
+with open('%s') as __org_babel_python_tmpfile:
+    exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'), sys.modules['%s'].__dict__)"
+  "Template for installing source code in a namespace.
+
+Has two %s escape, the tempfile containing the source code
+to evaluate, and the target namespace for the code.")
+#+END_SRC
+
+***** load python code to current module
+#+BEGIN_SRC elisp
+(defun literate-python-load-code-in-current-namespace ()
+  (interactive)
+  (let* ((node (literate-python-get-top-level-node-at-point))
+         (begin (treesit-node-start node))
+         (end (treesit-node-end node))
+         (code (buffer-substring-no-properties begin end))
+         (file (buffer-file-name))
+         (org-babel-p (equalp "org" (f-ext file)))
+         (module-name (if org-babel-p
+                        (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)
+                        (dired-replace-in-string "/" "." (f-no-ext (f-relative file (lsp-workspace-root))))))
+         (tmp-src-file (org-babel-temp-file "python-")))
+    (with-temp-file tmp-src-file
+      (insert code))
+    (if org-babel-p
+      ()
+      (python-shell-send-string
+       (format literate-python--exec-tmpfile-in-a-module
+               tmp-src-file module-name)))
+    (message "Loaded %s[%s:%s] in module %s" (treesit-node-type node) begin end module-name)))
+#+END_SRC
+
+* Python inspector for Emacs
+** Package for python inspector
+:PROPERTIES:
+:LITERATE_PYTHON_EXPORT_PACKAGE: pyinspect
+:END:
+**** Import required packages
+#+BEGIN_SRC python
+import json
+from inspect import getmembers, isbuiltin, ismethod
+from typing import Dict
+#+END_SRC
+**** Utility functions
+***** stringify a variable
+#+BEGIN_SRC python
+_PYINSPECT_ITEM_CAP = 5
+_PYINSPECT_STR_CAP = 80
+def stringify_val(member):
+    key, val = member
+    if isinstance(val, str):
+        return key, '"{}"'.format(val)
+    if type(val) in (dict, tuple, list):
+        return key, _pyinspect_trim(val, _PYINSPECT_ITEM_CAP, _PYINSPECT_STR_CAP)
+    return key, f"{str(val)} {str(type(val))}"
+#+END_SRC
+***** is trash
+#+BEGIN_SRC python
+def is_trash(member):
+    key, val = member
+    return (
+        key in ["__doc__", "__class__", "__hash__", "__dict__"]
+        or ismethod(val)
+        or isbuiltin(val)
+        or type(val).__name__ == "method-wrapper"
+    )
+#+END_SRC
+***** Turns a non-primitive obj into a dictionary of its fields and their values.
+#+BEGIN_SRC python
+def _pyinspect_inspect_object(obj):
+    """
+    Turns a **non-primitive** obj into a dictionary of its fields and their values.
+    Filters out some built-in magic fields and pretty-prints dictionary values via `json.dumps`.
+    Doesn't display methods.
+    """
+    return dict(stringify_val(m) for m in reversed(getmembers(obj)) if not is_trash(m))
+#+END_SRC
+***** Surrounds string key with extra quotes
+#+BEGIN_SRC python
+def _pyinspect_add_quotes(key):
+    """
+    Surrounds string key with extra quotes because Emacs parses them as just symbols
+    and makes it hard to distinguish between them and non-string symbols
+
+    >>> _pyinspect_add_quotes("hello")
+    '"hello"'
+
+    >>> _pyinspect_add_quotes(1)
+    1
+    """
+    return '"{}"'.format(key) if type(key) is str else key
+#+END_SRC
+***** trim_seq
+#+BEGIN_SRC python
+def trim_seq(seq):
+    if type(seq) is dict:
+        return _pyinspect_take_dict(seq, elem_cap)
+    elif type(seq) in (tuple, list):
+        return seq[:elem_cap]
+#+END_SRC
+***** trim
+#+BEGIN_SRC python
+def _pyinspect_trim(obj, elem_cap, str_cap):
+    """
+    If obj is a sequence (dict/list/tuple), takes its first elem_cap elements and drops the rest.
+    Also adds a cute ellipsis before the closing bracket to signal that it has been trimmed.
+    Returns a pretty-printed string of the sequence, formatted by json.dumps with indent=4.
+
+    If it's a string or any other kind of object, coerce it into a string and take the first
+    str_cap characters. AND add a cute ellipsis.
+
+    >>> _pyinspect_trim("abcde", elem_cap=3, str_cap=3)
+    'abc...'
+
+    >>> print(_pyinspect_trim([1, 2, 3, 4], elem_cap=3, str_cap=3))
+    [
+        1,
+        2,
+        3
+        ...
+    ]
+
+    >>> print(_pyinspect_trim({x: x + 1 for x in range(10)}, elem_cap=3, str_cap=3))
+    {
+        "0": 1,
+        "1": 2,
+        "2": 3
+        ...
+    }
+    """
+    if type(obj) in (dict, tuple, list):
+        jsondump = json.dumps(trim_seq(obj), indent=4)
+        if len(obj) > elem_cap:
+            return f"{jsondump[:-1]}    ...\n{jsondump[-1]}"
+        return jsondump
+
+    s = str(obj)
+    return f"{s[:str_cap]}..." if len(s) > str_cap else s
+#+END_SRC
+***** Returns a new dictionary with the first n pairs from d
+#+BEGIN_SRC python
+def _pyinspect_take_dict(d: Dict, n: int):
+    "Returns a new dictionary with the first n pairs from d"
+    def iterator():
+        i = 0
+        for item in d.items():
+            if i == n:
+                break
+            yield item
+            i += 1
+
+    return dict(iterator())
+#+END_SRC
+**** Dispatches the appropriate inspection according to obj type
+#+BEGIN_SRC python
+def _pyinspect(obj):
+    "Dispatches the appropriate inspection according to obj type"
+    if type(obj) in (str, bool, int, float, complex):
+        return {"type": "primitive", "value": obj}
+
+    elif type(obj) in (tuple, list):
+        return {
+            "type": "collection",
+            "value": [
+                _pyinspect_trim(item, _PYINSPECT_ITEM_CAP, _PYINSPECT_STR_CAP)
+                for item in obj
+            ],
+        }
+
+    elif type(obj) is dict:
+        return {
+            "type": "dict",
+            "value": {
+                _pyinspect_add_quotes(k): _pyinspect_trim(
+                    v, _PYINSPECT_ITEM_CAP, _PYINSPECT_STR_CAP
+                )
+                for (k, v) in obj.items()
+            },
+        }
+
+    else:
+        return {"type": "object", "value": _pyinspect_inspect_object(obj)}
+#+END_SRC
+**** inspect as json
+#+BEGIN_SRC python
+def _pyinspect_json(obj):
+    print(
+        json.dumps(_pyinspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])
+    )
+#+END_SRC
+** The Emacs interface for python inspector
+:PROPERTIES:
+:literate-lang: elisp
+:END:
+* Sync between org files and python files
+:PROPERTIES:
+:literate-lang: elisp
+:END:
+** Introduction
+Even though we can write Python code in org files, we still need to sync them with Python files,
+especially when we want to share the code with others, or import code changes from others.
+** Import
+*** How
+We try to import Python code from Python files to an org file by using Emacs's new library [[https://tree-sitter.github.io/tree-sitter/using-parsers][tree-sitter]].
+
+We can get the node filed types in [[https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json][this file]] for Python.
+
+For example, in the following Python code block, we can parse the Python code and get the first function name.
+#+BEGIN_SRC elisp
+(with-temp-buffer
+    (insert "def say_hello():\n  print('Hello')\n")
+  (let ((language (tree-sitter-require 'python))
+        (parser (tsc-make-parser)))
+    (tsc-set-language parser language)
+    (let* ((str (buffer-string))
+           (tree (tsc-parse-string parser str))
+           (root (tsc-root-node tree))
+           (first-child (tsc-get-nth-child root 0))
+           (first-child-name (tsc-get-child-by-field first-child :name)))
+      (message "first child node type: %s, name:%s" (tsc-node-type first-child) (tsc-node-text first-child-name))
+      (message "%s" (tsc-tree-to-sexp tree)))))
+#+END_SRC
+
+*** Implementation
+**** import required elisp libraries
+#+BEGIN_SRC elisp
+(require 'tree-sitter)
+(require 'tree-sitter-langs)
+(require 'f); for file operations
+#+END_SRC
+**** Utilities
+***** how to prepare a new org section for a Python module
+#+BEGIN_SRC elisp
+(cl-defun literate-python-new-org-section-for-a-module (name new-level &key (title name))
+  (let* ((new-module-name (format "%s.%s" current-module-name name)))
+    (insert "\n")
+    (loop repeat new-level do (insert "*"))
+    (insert " " title "\n")
+    (org-entry-put (point) "LITERATE_PYTHON_MODULE" (format "%s.%s" new-module-name))))
+#+END_SRC
+***** the parse tree for current file
+#+BEGIN_SRC elisp
+(defun literate-python-parse-tree-for-current-file ()
+  (let ((language (tree-sitter-require 'python))
+        (parser (tsc-make-parser)))
+    (tsc-set-language parser language)
+    (tsc-parse-string parser (buffer-string))))
+#+END_SRC
+
+***** get the comment for a module
+The comment for a module is usually the first string in the Python file before any meaning code.
+#+BEGIN_SRC elisp
+(defun literate-python-module-comment-from-node (node)
+  (when (eq 'module (tsc-node-type node)) 
+    (let* ((index 0)
+           (child (tsc-get-nth-child node index)))
+      (while (eq 'comment (tsc-node-type child))
+        (incf index)
+        (setq child (tsc-get-nth-child node index)))
+      (when (eq 'expression_statement (tsc-node-type child))
+        (setf child (tsc-get-nth-child child 0))
+        (when (eq 'string (tsc-node-type child))
+          (tsc-node-text (tsc-get-nth-child child 1)))))))
+#+END_SRC
+
+**** How to get the name of a parse node
+***** generic function
+#+BEGIN_SRC elisp
+(cl-defgeneric literate-python-node-name (node-type node)
+  (:documentation "Get the name of a node."))
+#+END_SRC
+***** function definition
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql function_definition)) node)
+  (tsc-node-text (tsc-get-child-by-field node :name)))
+#+END_SRC
+
+***** class_definition
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql class_definition)) node)
+  (tsc-node-text (tsc-get-child-by-field node :name)))
+#+END_SRC
+
+***** decorated_definition
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql decorated_definition)) node)
+  (let ((name-list nil)
+        (index 0)
+        (child (tsc-get-nth-child node index)))
+    (while (eq 'decorator (tsc-node-type child))
+      (setf name-list (nconc name-list (list (tsc-node-text (tsc-get-nth-child child 1)))))
+      (incf index)
+      (setf child (tsc-get-nth-child node index)))
+    (format "@%s: %s" (mapconcat 'identity name-list " ")
+            (literate-python-node-name (tsc-node-type child) child))))
+#+END_SRC
+
+**** iterate a directory to import Python files
+#+BEGIN_SRC elisp
+(cl-defun literate-python-import-python-codes-from-directory (dir &optional (level (or (org-current-level) 0)))
+  "Import Python codes from a directory to an org file."
+  (interactive "D")
+  (let ((current-module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t))
+	(new-level (1+ level)))
+    (dolist (file (directory-files dir t "\.py$"))
+      (literate-python-import-python-code-to-org file new-level))
+
+    (dolist (directory (f-directories dir))
+      (literate-python-new-org-section-for-a-module (pathname-name directory) new-level)
+      (literate-python-import-python-codes-from-directory directory new-level))))
+#+END_SRC
+**** import a python file
+To investigate the parse tree, we can use Emacs command [[https://github.com/emacs-mirror/emacs/blob/master/admin/notes/tree-sitter/starter-guide#query-references][treesit-explore-mode]]
+#+BEGIN_SRC elisp
+(defun literate-python-import-python-code-to-org (file new-level)
+  (with-current-buffer (find-file-noselect file)
+    (let* ((tree (literate-python-parse-tree-for-current-file))
+           (root (tsc-root-node tree))
+           (module-comment (literate-python-module-comment-from-node root))
+           (module-name (pathname-name file))
+           (module-title (or module-comment module-name))
+           (next-level (1+ new-level))
+           (count-of-children (tsc-count-children root))
+           (current-index 0)
+           (next-index 0)
+           (next-title nil))
+      (literate-python-new-org-section-for-a-module module-name new-level :title module-title)
+      (while (< current-index count-of-children)
+        (cl-multiple-value-setq (next-index next-title)
+          (literate-python-next-code-block-index root current-index))
+        (insert "\n")
+        (loop repeat next-level do (insert "*"))
+        (insert " " next-title "\n")
+        (insert "#+BEGIN_SRC python\n")
+        (loop for index from current-index to next-index do
+          (insert (tsc-node-text (ts-get-nth-child root index))))
+        (insert "#+END_SRC\n")
+        (setf current-index (1+ next-index))))))
+#+END_SRC
+**** get the next code block index
+#+BEGIN_SRC elisp
+(defun literate-python-next-code-block-index (root current-index)
+  (let ((max-index (1- (tsc-count-children root)))
+        (next-index current-index)
+        (next-node (ts-get-nth-child root next-index))
+        (next-node-type (ts-node-type next-node))
+        (start-node-type next-node-type)
+        (next-title nil))
+      (while (< current-index max-index)
+        (cl-case current-node-type 
+          (comment
+           (incf current-index)
+           (setf current-node (ts-get-nth-child root current-index))
+           (setf current-node-type (ts-node-type current-node)))
+          (decorated_definition
+           (return-from literate-python-next-code-block-index
+             (values current-index (literate-python-node-name current-node-type current-node))))
+          (class_definition
+           (return-from literate-python-next-code-block-index
+             (values current-index (literate-python-node-name current-node-type current-node))))
+          (function_definition
+           (return-from literate-python-next-code-block-index
+             (values current-index (literate-python-node-name current-node-type current-node))))
+          (expression_statement
+           (let* ((first-child-node (ts-get-nth-child current-node 0))
+                  (first-child-node-type (ts-node-type first-child-node)))
+           (setf next-node (ts-get-nth-child root next-index))
+           (setf next-node-type (ts-node-type next-node))
+           (when (eq 'comment next-node-type)
+             (setf next-title (tsc-node-text next-node))
+             (return-from literate-python-next-code-block-index (values next-index next-title)))
+           (incf next-index)
+           (setf current-index next-index)
+           (setf current-node next-node)
+           (setf current-node-type next-node-type)))
+          (t
+           (incf current-index)
+           (setf current-node (ts-get-nth-child root current-index))
+           (setf current-node-type (ts-node-type current-node))))
+ 
+        (incf next-index))
+    (when (< next-index count-of-children)
+      (setf next-title (tsc-node-text (ts-get-nth-child root next-index))))
+    (values next-index next-title)))
+#+END_SRC
+
+** Export
+* Tips
+** how to start django server in REPL
+#+BEGIN_SRC python
+import os
+import django
+from django.core.management import call_command
+from threading import Thread
+
+# Set up Django environment
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
+django.setup()
+
+# Function to start the server
+def start_server():
+    call_command('runserver', '127.0.0.1:8000', '--noreload')
+
+# Start the server in a new thread
+server_thread = Thread(target=start_server)
+server_thread.start()
+
+print("Django server started on http://127.0.0.1:8000")
+#+END_SRC
+
+* References
+- [[https://peps.python.org/pep-0302/][PEP 302 -- New Import Hooks]]
+- [[https://nbdev.fast.ai/tutorials/tutorial.html][nbdev]] (Create delightful software with Jupyter Notebooks)
+  - [[https://hallmx.github.io/nbd_colab/][nbd_colab]]
+- [[https://emacs-tree-sitter.github.io/api/inspecting/][tree-sitter]]
+

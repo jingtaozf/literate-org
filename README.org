@@ -1,3 +1,130 @@
+# -*- Mode: POLY-ORG ;  indent-tabs-mode: nil;  -*- ---
+#+Title: Load python modules from org files
+#+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: latexpreview
+#+STARTUP: noindent
+#+STARTUP: inlineimages
+#+PROPERTY: literate-lang python
+#+PROPERTY: literate-load yes
+#+PROPERTY: literate-insert-header no
+#+PROPERTY: header-args :results silent :session
+#+PROPERTY: LITERATE_PYTHON_EXPORT_DIRECTORY: ./lpy
+
+* Introduction
+I have used org file to write my document and code for a long time, in various languages.
+
+It is very convenient to write code in an org file.
+For example, instead of managing multiple files in nested directories,
+I can write code in an org file with a clear structure in a more lightweight way.
+It can contain both documentation and code in one file for all my projects.
+
+Now I want to use org file to write Python code,
+and I want to import Python modules from an org file for my projects.
+
+So comes this library to help me import Python modules from org files in Emacs.
+* How
+** Idea
+Python has a flexible module import system that allows you to customize how modules are imported.
+This enables us to import modules from a different file format (e.g. an org file).
+
+This approach allows you to maintain and organize your Python code blocks in different modules within one .org file
+while dynamically loading it into Python’s namespace.
+It leverages Emacs’ powerful editing capabilities along with
+Python’s flexible import system to create a seamless workflow for developing and running Python code.
+
+We also provide a way to execute Python code blocks in org files within specified Python modules,
+to allow for a more interactive development experience.
+** Prototype
+Let's do some tests in Python.
+
+1. import the necessary modules
+#+BEGIN_SRC python
+import sys
+import importlib
+#+END_SRC
+
+2. create a new module dynamically
+#+BEGIN_SRC python
+spec_module_a = importlib.util.spec_from_loader("module_a", loader=None)
+module_a = importlib.util.module_from_spec(spec_module_a)
+sys.modules["module_a"] = module_a
+#+END_SRC
+
+3. add a function to the module
+#+BEGIN_SRC python
+exec('def say_hello(): print("Hello from module_a.")', module_a.__dict__)
+exec('def a(): return 3', module_a.__dict__)
+exec('def b(): return 4 + a()', module_a.__dict__)
+#+END_SRC
+4. run this function
+#+BEGIN_SRC python
+from module_a import say_hello
+from module_a import b
+say_hello()
+b()
+#+END_SRC
+
+It works well.
+** The layout of python modules in one org file
+We can organize Python code blocks in org files in the following way:
+- The org sections are used to separate different modules.
+- The Python code blocks in each section are used to define the functions and classes in the module.
+- The org sections has the same hierarchy as the Python modules.
+  - The Python module name is defined in the property with name =LITERATE_PYTHON_MODULE_NAME= in the section.
+* Implementation
+:PROPERTIES:
+:LITERATE_PYTHON_EXPORT_NAMESPACE: lpy
+:END:
+** Import required elisp libraries
+#+BEGIN_SRC elisp
+(require 'ob-python)
+#+END_SRC
+** Source Code Execution
+:PROPERTIES:
+:literate-lang: elisp
+:END:
+*** execute source codes in specified module for org-babel-python-evaluate
+#+BEGIN_SRC elisp
+(defun literate-python-setup-org-babel ()
+  (setf org-babel-python--exec-tmpfile
+        "\
+with open('%s') as __org_babel_python_tmpfile:
+    exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'))"))
+#+END_SRC
+
+*** execute source codes in current code block
+We have to switch back to org buffer, otherwise =org-babel-execute-src-block-maybe= will report a message and
+override our own compilation report.
+#+BEGIN_SRC elisp
+(defun literate-python-execute-current-code-block ()
+  (interactive)
+  (let* ((element (org-element-at-point))
+         (info (second element))
+         (begin (plist-get info :begin)))
+    (save-excursion
+      (goto-char begin)
+      (pm-set-buffer (point))
+      (org-babel-execute-src-block-maybe))))
+#+END_SRC
+
+** Package for customized org-file import
+:PROPERTIES:
+:LITERATE_PYTHON_EXPORT_PACKAGE: org_importer
+:END:
+*** import dependent packages
+#+BEGIN_SRC python
+import sys
+import os
+import importlib.abc
+import importlib.util
+import orgparse
+from collections import defaultdict
+#+END_SRC
+
+#+RESULTS:
+: None
+
 * References
+- [[https://peps.python.org/pep-0302/][PEP 302 -- New Import Hooks]]
 - [[https://nbdev.fast.ai/tutorials/tutorial.html][nbdev]] (Create delightful software with Jupyter Notebooks)
   - [[https://hallmx.github.io/nbd_colab/][nbd_colab]]
