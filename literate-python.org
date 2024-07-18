@@ -188,7 +188,7 @@ to evaluate, and the target namespace for the code.")
     (with-temp-file tmp-src-file
       (insert code))
     (if org-babel-p
-      ()
+      (error "Not implemented yet")
       (python-shell-send-string
        (format literate-python--exec-tmpfile-in-a-module
                tmp-src-file module-name)))
@@ -371,7 +371,7 @@ We try to import Python code from Python files to an org file by using Emacs's n
 We can get the node filed types in [[https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json][this file]] for Python.
 
 For example, in the following Python code block, we can parse the Python code and get the first function name.
-#+BEGIN_SRC elisp
+#+BEGIN_SRC elisp :load no
 (with-temp-buffer
     (insert "def say_hello():\n  print('Hello')\n")
   (let ((language (tree-sitter-require 'python))
@@ -572,10 +572,8 @@ server_thread.start()
 
 print("Django server started on http://127.0.0.1:8000")
 #+END_SRC
-
 * References
 - [[https://peps.python.org/pep-0302/][PEP 302 -- New Import Hooks]]
 - [[https://nbdev.fast.ai/tutorials/tutorial.html][nbdev]] (Create delightful software with Jupyter Notebooks)
   - [[https://hallmx.github.io/nbd_colab/][nbd_colab]]
 - [[https://emacs-tree-sitter.github.io/api/inspecting/][tree-sitter]]
-
