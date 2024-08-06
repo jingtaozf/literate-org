@@ -127,6 +127,56 @@ from collections import defaultdict
 (require 'lsp);; for `lsp-workspace-root'
 #+END_SRC
 **** Source Code Execution
+***** customized variables for server host and port
+#+BEGIN_SRC elisp
+(defcustom literate-python-server-host "127.0.0.1"
+  "The server host address for literate python server."
+  :type 'string
+  :group 'literate-python)
+
+(defcustom literate-python-server-port 7330
+  "The server port for literate python server."
+  :type 'integer
+  :group 'literate-python)
+#+END_SRC
+***** execute code in remote server
+#+BEGIN_SRC elisp
+(defvar literate-python-rest-server "http://localhost:7330/")
+(defvar literate-python-last-response nil)
+(cl-defun literate-python-request (path &key params data (type "GET"))
+  (setf literate-python-last-response nil)
+  (let ((request-backend 'url-retrieve)
+        resp)
+    (request (concat literate-python-rest-server path)
+        :params params
+        :parser 'json-read
+        :type type
+        :headers '(("Content-Type" . "application/json"))
+        :sync t
+        :data (encode-coding-string (json-encode data) 'utf-8 t) ; Encode and ensure unibyte
+        :complete (cl-function
+                   (lambda (&key response &allow-other-keys)
+                     (setf literate-python-last-response response)
+                     (case (request-response-status-code response)
+                       (200 (setf resp (request-response-data response)))
+                       (500 (user-error "Literate Python server failed:%s" (cdr (assoc 'message (request-response-data response)))))
+                       (t (user-error "Failed to request to remote Python server:%s" response))))))
+    (let ((type (cdr (assoc 'type resp))))
+      (cond ((equal type "error")
+             (let ((stdout (cdr (assoc 'stdout resp)))
+                   (stderr (cdr (assoc 'stderr resp))))
+               (with-current-buffer (get-buffer-create "*literate-python-error*")
+                 (erase-buffer)
+                 (insert "=== Data ===\n" (encode-coding-string (json-encode data) 'utf-8 t) "\n\n")
+                 (insert "==== Error ===\n" (cdr (assoc 'error resp)))
+                 (when stdout 
+                   (insert "\n\n=== stdout ===\n" stdout))
+                 (when stderr
+                   (insert "\n\n=== stderr ===\n" (cdr (assoc 'stderr resp)))))
+               (switch-to-buffer-other-window "*literate-python-error*")))))
+    resp))
+#+END_SRC
+
 ***** execute source codes in specified module for org-babel-python-evaluate
 #+BEGIN_SRC elisp
 (defun literate-python-setup-org-babel ()
@@ -135,19 +185,31 @@ from collections import defaultdict
 with open('%s') as __org_babel_python_tmpfile:
     exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'))"))
 #+END_SRC
-***** execute source codes in current code block
+***** execute source code in remote server
+#+BEGIN_SRC elisp
+(cl-defun literate-python-execute-code (code &key (type :exec) (module) (module-create-method "import_or_create"))
+  (literate-python-request "execute" :type "POST"
+                           :data `((type . ,(subseq (symbol-name type) 1))
+                                   (module . ,module)
+                                   (module-create-method . ,module-create-method)
+                                   (code . ,code))))
+#+END_SRC
+***** execute source code in current code block
 We have to switch back to org buffer, otherwise =org-babel-execute-src-block-maybe= will report a message and
 override our own compilation report.
 #+BEGIN_SRC elisp
 (defun literate-python-execute-current-code-block ()
   (interactive)
-  (let* ((element (org-element-at-point))
-         (info (second element))
-         (begin (plist-get info :begin)))
-    (save-excursion
-      (goto-char begin)
-      (pm-set-buffer (point))
-      (org-babel-execute-src-block-maybe))))
+  (let* ((context-info (second (org-element-context)))
+         (block-arguments (third (org-babel-get-src-block-info)))
+         (info (org-babel-get-src-block-info))
+         (body (nth 1 info))
+         (code (plist-get context-info :value))
+         (module-create-method (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_CREATE_METHOD" t)
+                                   "import_or_create"))
+         (module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)))
+    (literate-python-execute-code code :type :exec :module module-name :module-create-method module-create-method)
+    (message "Loaded current code block in module %s" module-name)))
 #+END_SRC
 ***** get top level python code
 #+BEGIN_SRC elisp
@@ -163,14 +225,30 @@ override our own compilation report.
 ***** how to run python code in a namespace
 #+BEGIN_SRC elisp
 (defconst literate-python--exec-tmpfile-in-a-module "\
-with open('%s') as __org_babel_python_tmpfile:
-    exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'), sys.modules['%s'].__dict__)"
+import sys
+_tmp_file = '%s'
+_module_name = '%s'
+if _module_name not in sys.modules:
+   import importlib
+   importlib.import_module(_module_name)
+with open(_tmp_file) as __org_babel_python_tmpfile:
+   exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'), sys.modules[_module_name].__dict__)"
   "Template for installing source code in a namespace.
 
 Has two %s escape, the tempfile containing the source code
 to evaluate, and the target namespace for the code.")
 #+END_SRC
-
+***** get the module name for a file name
+#+BEGIN_SRC elisp
+(cl-defun literate-python-module-name-from-file-name (&optional (file (buffer-file-name)))
+  "Get the module name from a file name."
+  (let* ((package-root (lsp-workspace-root))
+         (relative-name (f-no-ext (f-relative file package-root))))
+    (when (or (string-prefix-p ".venv" relative-name)
+              (string-prefix-p "venv" relative-name))
+      (setf relative-name (apply 'f-join (nthcdr 4 (split-string relative-name "/")))))
+    (dired-replace-in-string "/" "." relative-name)))
+#+END_SRC
 ***** load python code to current module
 #+BEGIN_SRC elisp
 (defun literate-python-load-code-in-current-namespace ()
@@ -183,18 +261,23 @@ to evaluate, and the target namespace for the code.")
          (org-babel-p (equalp "org" (f-ext file)))
          (module-name (if org-babel-p
                         (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)
-                        (dired-replace-in-string "/" "." (f-no-ext (f-relative file (lsp-workspace-root))))))
-         (tmp-src-file (org-babel-temp-file "python-")))
-    (with-temp-file tmp-src-file
-      (insert code))
-    (if org-babel-p
-      (error "Not implemented yet")
-      (python-shell-send-string
-       (format literate-python--exec-tmpfile-in-a-module
-               tmp-src-file module-name)))
+                        (literate-python-module-name-from-file-name file)))
+         (module-create-method (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_CREATE_METHOD" t)
+                                   "import_or_create")))
+    ;; To Fix module name with syntax `...literate-python.literate_python.module_a'
+    (let ((prefix-dot-count 0))
+      (while (eq ?. (aref module-name prefix-dot-count))
+        (incf prefix-dot-count))
+      (let ((index prefix-dot-count))
+        (while (> prefix-dot-count 1)
+          (setf index (1+ (position ?. module-name :start index)))
+          (decf prefix-dot-count))
+        (when (> index 0)
+          (setf module-name (substring module-name index)))))
+
+    (literate-python-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded %s[%s:%s] in module %s" (treesit-node-type node) begin end module-name)))
 #+END_SRC
-
 * Python inspector for Emacs
 ** Package for python inspector
 :PROPERTIES:
@@ -373,7 +456,8 @@ We can get the node filed types in [[https://github.com/tree-sitter/tree-sitter-
 For example, in the following Python code block, we can parse the Python code and get the first function name.
 #+BEGIN_SRC elisp :load no
 (with-temp-buffer
-    (insert "def say_hello():\n  print('Hello')\n")
+    ;; (insert "def say_hello():\n  print('Hello')\n")
+    (insert "yaml.add_representer(Canonical, dataclass_representer)\n")
   (let ((language (tree-sitter-require 'python))
         (parser (tsc-make-parser)))
     (tsc-set-language parser language)
@@ -382,8 +466,11 @@ For example, in the following Python code block, we can parse the Python code an
            (root (tsc-root-node tree))
            (first-child (tsc-get-nth-child root 0))
            (first-child-name (tsc-get-child-by-field first-child :name)))
-      (message "first child node type: %s, name:%s" (tsc-node-type first-child) (tsc-node-text first-child-name))
-      (message "%s" (tsc-tree-to-sexp tree)))))
+      ;; (message "first child node type: %s, name:%s" (tsc-node-type first-child) (tsc-node-text first-child-name))
+      (let ((grandchild (tsc-get-nth-child first-child 0)))
+        (message "%s" (tsc-node-text (tsc-get-child-by-field grandchild :function))))
+      ;; (message "%s" (tsc-tree-to-sexp tree))
+      )))
 #+END_SRC
 
 *** Implementation
@@ -396,12 +483,10 @@ For example, in the following Python code block, we can parse the Python code an
 **** Utilities
 ***** how to prepare a new org section for a Python module
 #+BEGIN_SRC elisp
-(cl-defun literate-python-new-org-section-for-a-module (name new-level &key (title name))
-  (let* ((new-module-name (format "%s.%s" current-module-name name)))
-    (insert "\n")
-    (loop repeat new-level do (insert "*"))
-    (insert " " title "\n")
-    (org-entry-put (point) "LITERATE_PYTHON_MODULE" (format "%s.%s" new-module-name))))
+(cl-defun literate-python-new-org-section-for-a-module (module-name new-level &key (title module-name))
+  (loop repeat new-level do (insert "*"))
+  (insert " " title "\n")
+  (org-entry-put (point) "LITERATE_PYTHON_MODULE" module-name))
 #+END_SRC
 ***** the parse tree for current file
 #+BEGIN_SRC elisp
@@ -437,21 +522,21 @@ The comment for a module is usually the first string in the Python file before a
 ***** function definition
 #+BEGIN_SRC elisp
 (cl-defmethod literate-python-node-name ((node-type (eql function_definition)) node)
-  (tsc-node-text (tsc-get-child-by-field node :name)))
+  (format "Function %s" (tsc-node-text (tsc-get-child-by-field node :name))))
 #+END_SRC
 
 ***** class_definition
 #+BEGIN_SRC elisp
 (cl-defmethod literate-python-node-name ((node-type (eql class_definition)) node)
-  (tsc-node-text (tsc-get-child-by-field node :name)))
+  (format "Class %s" (tsc-node-text (tsc-get-child-by-field node :name))))
 #+END_SRC
 
 ***** decorated_definition
 #+BEGIN_SRC elisp
 (cl-defmethod literate-python-node-name ((node-type (eql decorated_definition)) node)
-  (let ((name-list nil)
-        (index 0)
-        (child (tsc-get-nth-child node index)))
+  (let* ((name-list nil)
+         (index 0)
+         (child (tsc-get-nth-child node index)))
     (while (eq 'decorator (tsc-node-type child))
       (setf name-list (nconc name-list (list (tsc-node-text (tsc-get-nth-child child 1)))))
       (incf index)
@@ -459,97 +544,240 @@ The comment for a module is usually the first string in the Python file before a
     (format "@%s: %s" (mapconcat 'identity name-list " ")
             (literate-python-node-name (tsc-node-type child) child))))
 #+END_SRC
+***** assignment
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql assignment)) node)
+  (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))
+#+END_SRC
+
+***** call
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql call)) node)
+  (format "Call %s" (tsc-node-text (tsc-get-child-by-field node :function))))
+#+END_SRC
+
+***** string
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql string)) node)
+  "String")
+#+END_SRC
+
+***** expression
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql expression_statement)) node)
+  (let ((new-node (tsc-get-nth-child node 0)))
+    (literate-python-node-name (ts-node-type new-node) new-node)))
+#+END_SRC
+
+**** ignored directories
+#+BEGIN_SRC elisp
+(defcustom literate-python-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea")
+  "The directories to be ignored when importing Python packages.")
+#+END_SRC
 
 **** iterate a directory to import Python files
 #+BEGIN_SRC elisp
-(cl-defun literate-python-import-python-codes-from-directory (dir &optional (level (or (org-current-level) 0)))
+(cl-defun literate-python-import-python-package (&key (level (or (org-current-level) 0))
+                                                      (module-name (or (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)
+                                                                       (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t)))
+                                                      (module-path (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_PATH" t)
+                                                                       (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))))
   "Import Python codes from a directory to an org file."
-  (interactive "D")
-  (let ((current-module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t))
-	(new-level (1+ level)))
-    (dolist (file (directory-files dir t "\.py$"))
-      (literate-python-import-python-code-to-org file new-level))
+  (interactive "")
+  (let* ((new-level (1+ level)))
+    (dolist (file (directory-files module-path t "\.py$"))
+      (let* ((relative-name (f-no-ext (f-relative file module-path)))
+             (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
+        (literate-python-import-python-code-to-org file new-level new-module-name)))
 
-    (dolist (directory (f-directories dir))
-      (literate-python-new-org-section-for-a-module (pathname-name directory) new-level)
-      (literate-python-import-python-codes-from-directory directory new-level))))
+    (dolist (directory (f-directories module-path))
+      (let* ((relative-name (f-no-ext (f-relative directory module-path)))
+             (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
+        (unless (loop for ignored-name in literate-python-ignored-dirs
+                      thereis (search ignored-name new-module-name))
+        (literate-python-new-org-section-for-a-module new-module-name new-level :title (or (f-ext relative-name) relative-name))
+        (literate-python-import-python-package :level new-level :module-name new-module-name :module-path directory))))))
+
 #+END_SRC
-**** import a python file
+**** get pieces of code blocks in a python file
 To investigate the parse tree, we can use Emacs command [[https://github.com/emacs-mirror/emacs/blob/master/admin/notes/tree-sitter/starter-guide#query-references][treesit-explore-mode]]
 #+BEGIN_SRC elisp
-(defun literate-python-import-python-code-to-org (file new-level)
+(defun literate-python-get-code-blocks-in-file (file)
   (with-current-buffer (find-file-noselect file)
     (let* ((tree (literate-python-parse-tree-for-current-file))
            (root (tsc-root-node tree))
-           (module-comment (literate-python-module-comment-from-node root))
-           (module-name (pathname-name file))
-           (module-title (or module-comment module-name))
-           (next-level (1+ new-level))
            (count-of-children (tsc-count-children root))
+           (module-comment (when (> count-of-children 0)
+                             (literate-python-module-comment-from-node root)))
            (current-index 0)
            (next-index 0)
-           (next-title nil))
-      (literate-python-new-org-section-for-a-module module-name new-level :title module-title)
+           (next-title nil)
+           (code-blocks nil))
       (while (< current-index count-of-children)
         (cl-multiple-value-setq (next-index next-title)
           (literate-python-next-code-block-index root current-index))
-        (insert "\n")
-        (loop repeat next-level do (insert "*"))
-        (insert " " next-title "\n")
-        (insert "#+BEGIN_SRC python\n")
-        (loop for index from current-index to next-index do
-          (insert (tsc-node-text (ts-get-nth-child root index))))
-        (insert "#+END_SRC\n")
-        (setf current-index (1+ next-index))))))
+        (setf code-blocks
+                (nconc code-blocks
+                       (list (cons (dired-replace-in-string "\n" " " next-title)
+                                   (trim-string 
+                                    (with-output-to-string
+                                        (loop for index from current-index to next-index 
+                                              do (princ (tsc-node-text (ts-get-nth-child root index)))
+                                                 (princ "\n"))))))))
+        (setf current-index (1+ next-index)))
+      (cons module-comment code-blocks))))
+#+END_SRC
+
+**** import a python file
+#+BEGIN_SRC elisp
+(defcustom literate-python-org-babel-lang "python" "The org-babel language for literate python.")
+(defun literate-python-import-python-code-to-org (file level module-name)
+  (let* ((new-level (1+ level))
+           (code-blocks-info (literate-python-get-code-blocks-in-file file))
+         (module-comment (car code-blocks-info))
+         (code-blocks (cdr code-blocks-info)))
+    (literate-python-new-org-section-for-a-module module-name level :title (or module-comment (f-ext module-name) module-name))
+    (let* ((module-root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
+           (root-module (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t))
+           (module-file-name (dired-replace-in-string "\\." "/" (subseq module-name (length root-module)))))
+      (org-entry-put (point) "header-args" (format ":tangle %s%s.py" module-root-path module-file-name)))
+
+    (loop for (title . code) in code-blocks do
+      (loop repeat new-level do (insert "*"))
+      (insert " " title "\n")
+      (insert "#+BEGIN_SRC " literate-python-org-babel-lang "\n")
+      (insert code)
+      (insert "\n#+END_SRC\n"))))
 #+END_SRC
 **** get the next code block index
 #+BEGIN_SRC elisp
-(defun literate-python-next-code-block-index (root current-index)
-  (let ((max-index (1- (tsc-count-children root)))
-        (next-index current-index)
-        (next-node (ts-get-nth-child root next-index))
-        (next-node-type (ts-node-type next-node))
-        (start-node-type next-node-type)
-        (next-title nil))
-      (while (< current-index max-index)
-        (cl-case current-node-type 
-          (comment
-           (incf current-index)
-           (setf current-node (ts-get-nth-child root current-index))
-           (setf current-node-type (ts-node-type current-node)))
-          (decorated_definition
-           (return-from literate-python-next-code-block-index
-             (values current-index (literate-python-node-name current-node-type current-node))))
-          (class_definition
-           (return-from literate-python-next-code-block-index
-             (values current-index (literate-python-node-name current-node-type current-node))))
-          (function_definition
-           (return-from literate-python-next-code-block-index
-             (values current-index (literate-python-node-name current-node-type current-node))))
-          (expression_statement
-           (let* ((first-child-node (ts-get-nth-child current-node 0))
-                  (first-child-node-type (ts-node-type first-child-node)))
-           (setf next-node (ts-get-nth-child root next-index))
-           (setf next-node-type (ts-node-type next-node))
-           (when (eq 'comment next-node-type)
-             (setf next-title (tsc-node-text next-node))
-             (return-from literate-python-next-code-block-index (values next-index next-title)))
-           (incf next-index)
-           (setf current-index next-index)
-           (setf current-node next-node)
-           (setf current-node-type next-node-type)))
-          (t
-           (incf current-index)
-           (setf current-node (ts-get-nth-child root current-index))
-           (setf current-node-type (ts-node-type current-node))))
- 
-        (incf next-index))
-    (when (< next-index count-of-children)
-      (setf next-title (tsc-node-text (ts-get-nth-child root next-index))))
-    (values next-index next-title)))
+(cl-defun literate-python-next-code-block-index (root current-index)
+  (let* ((max-index (1- (tsc-count-children root)))
+         (current-node nil)
+         (current-node-type nil)
+         (next-index nil)
+         (next-node-type nil)
+         (next-node nil)
+         (next-title nil))
+    (while (<= current-index max-index)
+      (setf current-node (ts-get-nth-child root current-index))
+      (setf current-node-type (ts-node-type current-node))
+      (when (= current-index max-index)
+        (return-from literate-python-next-code-block-index (values max-index (literate-python-node-name current-node-type current-node))))
+      (setf next-index (1+ current-index)
+            next-node (ts-get-nth-child root next-index)
+            next-node-type (ts-node-type next-node))
+      (cl-case current-node-type 
+        ((import_statement import_from_statement)
+         (cond ((find next-node-type '(import_statement import_from_statement))
+                (incf current-index))
+               (t
+                (return-from literate-python-next-code-block-index (values current-index "Import statements")))))
+        (decorated_definition
+         (return-from literate-python-next-code-block-index
+           (values current-index (literate-python-node-name current-node-type current-node))))
+        (class_definition
+         (return-from literate-python-next-code-block-index
+           (values current-index (literate-python-node-name current-node-type current-node))))
+        (function_definition
+         (return-from literate-python-next-code-block-index
+           (values current-index (literate-python-node-name current-node-type current-node))))
+        (expression_statement
+         (let* ((first-child-node (ts-get-nth-child current-node 0))
+                (first-child-node-type (ts-node-type first-child-node)))
+           (cl-case first-child-node-type
+             (comment
+              (incf next-index)
+              (setf next-node (ts-get-nth-child root next-index))
+              (setf next-node-type (ts-node-type next-node)))
+             (string
+              (return-from literate-python-next-code-block-index (values current-index "Docstring")))
+             (assignment
+              ;; if there is a docstring for this assignment, continue to next index
+              (if (and (eq 'expression_statement next-node-type)
+                       (eq 'string (ts-node-type (ts-get-nth-child next-node 0))))
+                (incf current-index)
+                (return-from literate-python-next-code-block-index
+                  (values current-index
+                          (literate-python-node-name first-child-node-type first-child-node)))))
+             (t
+              (return-from literate-python-next-code-block-index
+                (values current-index
+                        (literate-python-node-name first-child-node-type first-child-node)))))))
+        (t
+         (incf current-index))))))
 #+END_SRC
 
 ** Export
+* Run python code in specified module
+:PROPERTIES:
+:literate-lang: elisp
+:END:
+** setup current module in python REPL
+*** a special variable for current module name in python REPL
+#+BEGIN_SRC elisp
+(defvar literate-python-current-module nil
+        "The current python module name to be used when execute a code.")
+#+END_SRC
+*** display namespace in the mode line in buffer for python REPL 
+#+BEGIN_SRC elisp
+(defun literate-python-current-namespace-in-repl ()
+  `(
+    "/"
+    ,(or literate-python-current-module "*")
+    "/"))
+(add-to-list 'mode-line-misc-info
+             `(inferior-python-mode (" [" literate-python-current-namespace-in-repl "] ")))
+#+END_SRC
+*** a comint input sender to exec code in a namespace.
+#+BEGIN_SRC elisp
+(defun literate-python-comint-input-sender (proc string)
+  (with-current-buffer (process-buffer proc)
+    (if (eq major-mode 'inferior-python-mode)
+      (let ((new-string (format "__PYTHON_EL_eval(%s, %s)\n"
+                                (python-shell--encode-string string)
+                                (python-shell--encode-string (or (buffer-file-name)
+                                                                 "<string>")))))
+        (comint-simple-send proc new-string))
+      (comint-simple-send proc string))))
+#+END_SRC
+
+** setup python shell eval setup code
+#+BEGIN_SRC elisp
+(defun literate-python-setup-shell-eval-setup-code ()
+  (setf comint-input-sender (function literate-python-comint-input-sender))
+  (setf python-shell-eval-setup-code
+  "\
+def __PYTHON_EL_eval(source, filename, module=None):
+    import ast, sys
+    import os
+    if sys.version_info[0] == 2:
+        from __builtin__ import compile, eval, globals
+    else:
+        from builtins import compile, eval, globals
+    try:
+        p, e = ast.parse(source, filename), None
+    except SyntaxError:
+        t, v, tb = sys.exc_info()
+        sys.excepthook(t, v, tb.tb_next)
+        return
+    if p.body and isinstance(p.body[-1], ast.Expr):
+        e = p.body.pop()
+    try:
+        g = globals()
+        if module is None and 'python_repl_module_name' in globals():
+           module = globals()['python_repl_module_name']
+        if module is not None:
+           g = sys.modules[module].__dict__
+        exec(compile(p, filename, 'exec'), g, g)
+        if e:
+            return eval(compile(ast.Expression(e.value), filename, 'eval'), g, g)
+    except Exception:
+        t, v, tb = sys.exc_info()
+        sys.excepthook(t, v, tb.tb_next)")
+  )
+#+END_SRC
+
 * Tips
 ** how to start django server in REPL
 #+BEGIN_SRC python
