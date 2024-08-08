@@ -22,6 +22,90 @@ Now I want to use org file to write Python code,
 and I want to import Python modules from an org file for my projects.
 
 So comes this library to help me import Python modules from org files in Emacs.
+* A minor mode for literate python
+:PROPERTIES:
+:literate-lang: elisp
+:END:
+** definition
+#+BEGIN_SRC elisp
+(define-minor-mode literate-python-mode
+    "Mode for org buffers with code blocks."
+  :lighter nil
+  (cond
+    (literate-python-mode
+     (when (equal "org" (f-ext (buffer-file-name (current-buffer))))
+       (when (buffer-base-buffer)
+         (with-current-buffer (buffer-base-buffer)
+           ;; The command `save-buffer` utilizes the base buffer for an indirect buffer.
+           (add-hook 'before-save-hook 'literate-python-black-org-code-block -50 t)
+           (add-hook 'after-save-hook 'literate-python-tangle-current-python-file -50 t)
+           (add-hook 'xref-backend-functions #'literate-python-xref-backend -50 t)))))
+    (t
+     (when (equal "org" (f-ext (buffer-file-name (current-buffer))))
+       (when (buffer-base-buffer)
+         (with-current-buffer (buffer-base-buffer)
+           (remove-hook 'before-save-hook 'literate-python-black-org-code-block t)
+           (remove-hook 'after-save-hook 'literate-python-tangle-current-python-file t)))
+       (remove-hook 'xref-backend-functions #'literate-python-xref-backend t)))))
+#+END_SRC
+** black org code block when save
+#+BEGIN_SRC elisp
+(defun literate-python-black-org-code-block ()
+  (python-black-org-mode-block))
+'(eval-after-load "polymode" 
+  '(add-to-list 'polymode-run-these-before-save-functions-in-other-buffers
+    'literate-python-black-org-code-block))
+#+END_SRC
+** tangle current file when save
+#+BEGIN_SRC elisp
+(defun literate-python-tangle-current-python-file ()
+  (interactive)
+  (let ((file-name (cdr (assoc :tangle (cl-third (org-babel-get-src-block-info 'light))))))
+    (when file-name
+      (org-babel-tangle '(16) file-name))))
+#+END_SRC
+
+** xref backend
+*** backend name
+#+BEGIN_SRC elisp
+(defun literate-python-xref-backend ()
+  'xref-literate-python)
+#+END_SRC
+*** identifier-completion-table
+#+BEGIN_SRC elisp
+(cl-defmethod xref-backend-identifier-completion-table ((_backend (eql xref-literate-python)))
+  (xref-backend-identifier-completion-table 'xref-lsp))
+#+END_SRC
+*** collect definitions in an org file
+**** a variable to store all definitions
+#+BEGIN_SRC elisp
+(defvar literate-python-org-code-definitions nil)
+#+END_SRC
+**** parse all python code blocks
+#+BEGIN_SRC elisp
+(defun my-parse-python-blocks ()
+    "Parse all Python source blocks in the current Org file and collect definitions."
+    (let (results)
+      (org-element-map (org-element-parse-buffer) 'src-block
+        (lambda (src-block)
+          (when (string= "python" (org-element-property :language src-block))
+            (let* ((code (org-element-property :value src-block))
+                   (tree (tree-sitter-parse-string 'python code))
+                   (root (tree-sitter-root-node tree)))
+              (setq results (append results (my-collect-definitions root code)))))))
+      results))
+#+END_SRC
+
+*** find definitions
+#+BEGIN_SRC elisp
+(cl-defmethod xref-backend-definitions ((_backend (eql xref-literate-python)) identifier)
+  (let ((current-point (point)))
+    (save-excursion
+      ;; reach to the start of a python file.
+      ;; (search-backward-regexp "^:header-args: :tangle .*?\\.py")
+      (xref-backend-definitions 'xref-lsp identifier))))
+#+END_SRC
+
 * Python library for importing modules from org files
 ** Idea
 Python has a flexible module import system that allows you to customize how modules are imported.
@@ -123,25 +207,22 @@ from collections import defaultdict
 :END:
 **** Import required elisp libraries
 #+BEGIN_SRC elisp
+(require 'f)
+(require 'files)
 (require 'ob-python)
 (require 'lsp);; for `lsp-workspace-root'
+(require 'python-black)
 #+END_SRC
 **** Source Code Execution
 ***** customized variables for server host and port
 #+BEGIN_SRC elisp
-(defcustom literate-python-server-host "127.0.0.1"
-  "The server host address for literate python server."
+(defcustom literate-python-reset-server "http://localhost:7330/"
+  "The server address for literate python server."
   :type 'string
-  :group 'literate-python)
-
-(defcustom literate-python-server-port 7330
-  "The server port for literate python server."
-  :type 'integer
   :group 'literate-python)
 #+END_SRC
 ***** execute code in remote server
 #+BEGIN_SRC elisp
-(defvar literate-python-rest-server "http://localhost:7330/")
 (defvar literate-python-last-response nil)
 (cl-defun literate-python-request (path &key params data (type "GET"))
   (setf literate-python-last-response nil)
@@ -244,8 +325,7 @@ to evaluate, and the target namespace for the code.")
   "Get the module name from a file name."
   (let* ((package-root (lsp-workspace-root))
          (relative-name (f-no-ext (f-relative file package-root))))
-    (when (or (string-prefix-p ".venv" relative-name)
-              (string-prefix-p "venv" relative-name))
+    (when (locate-dominating-file relative-name "site-packages")
       (setf relative-name (apply 'f-join (nthcdr 4 (split-string relative-name "/")))))
     (dired-replace-in-string "/" "." relative-name)))
 #+END_SRC
@@ -581,23 +661,35 @@ The comment for a module is usually the first string in the Python file before a
                                                       (module-name (or (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)
                                                                        (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t)))
                                                       (module-path (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_PATH" t)
-                                                                       (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))))
+                                                                       (let* ((root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
+                                                                              (path (when root-path
+                                                                                      (concat root-path "/" (dired-replace-in-string "\\." "/" module-name)))))
+                                                                         (when path
+                                                                           (if (f-directory? path)
+                                                                             path
+                                                                             (let ((path (concat path ".py")))
+                                                                               (if (f-exists-p path)
+                                                                                 path
+                                                                                 (user-error "No module path found:%s" path)))))))))
   "Import Python codes from a directory to an org file."
   (interactive "")
   (let* ((new-level (1+ level)))
-    (dolist (file (directory-files module-path t "\.py$"))
-      (let* ((relative-name (f-no-ext (f-relative file module-path)))
-             (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
-        (literate-python-import-python-code-to-org file new-level new-module-name)))
+    (if (f-directory-p module-path)
+      (progn
+        (dolist (file (directory-files module-path t "\.py$"))
+          (let* ((relative-name (f-no-ext (f-relative file module-path)))
+                 (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
+            (literate-python-import-python-code-to-org file new-level new-module-name)))
 
-    (dolist (directory (f-directories module-path))
-      (let* ((relative-name (f-no-ext (f-relative directory module-path)))
-             (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
-        (unless (loop for ignored-name in literate-python-ignored-dirs
-                      thereis (search ignored-name new-module-name))
-        (literate-python-new-org-section-for-a-module new-module-name new-level :title (or (f-ext relative-name) relative-name))
-        (literate-python-import-python-package :level new-level :module-name new-module-name :module-path directory))))))
-
+        (dolist (directory (f-directories module-path))
+          (let* ((relative-name (f-no-ext (f-relative directory module-path)))
+                 (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
+            (unless (loop for ignored-name in literate-python-ignored-dirs
+                          thereis (search ignored-name new-module-name))
+              (literate-python-new-org-section-for-a-module new-module-name new-level :title (or (f-ext relative-name) relative-name))
+              (literate-python-import-python-package :level new-level :module-name new-module-name :module-path directory)))))
+      (progn
+        (literate-python-import-python-code-to-org module-path level module-name :with-org-section nil)))))
 #+END_SRC
 **** get pieces of code blocks in a python file
 To investigate the parse tree, we can use Emacs command [[https://github.com/emacs-mirror/emacs/blob/master/admin/notes/tree-sitter/starter-guide#query-references][treesit-explore-mode]]
@@ -619,11 +711,9 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
         (setf code-blocks
                 (nconc code-blocks
                        (list (cons (dired-replace-in-string "\n" " " next-title)
-                                   (trim-string 
-                                    (with-output-to-string
-                                        (loop for index from current-index to next-index 
-                                              do (princ (tsc-node-text (ts-get-nth-child root index)))
-                                                 (princ "\n"))))))))
+                                   (let ((begin (tsc-node-start-position (ts-get-nth-child root current-index)))
+                                         (end (tsc-node-end-position (ts-get-nth-child root next-index))))
+                                     (concat (buffer-substring-no-properties begin end) "\n"))))))
         (setf current-index (1+ next-index)))
       (cons module-comment code-blocks))))
 #+END_SRC
@@ -631,16 +721,17 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 **** import a python file
 #+BEGIN_SRC elisp
 (defcustom literate-python-org-babel-lang "python" "The org-babel language for literate python.")
-(defun literate-python-import-python-code-to-org (file level module-name)
+(cl-defun literate-python-import-python-code-to-org (file level module-name &key (with-org-section t))
   (let* ((new-level (1+ level))
            (code-blocks-info (literate-python-get-code-blocks-in-file file))
          (module-comment (car code-blocks-info))
          (code-blocks (cdr code-blocks-info)))
-    (literate-python-new-org-section-for-a-module module-name level :title (or module-comment (f-ext module-name) module-name))
-    (let* ((module-root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
-           (root-module (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t))
-           (module-file-name (dired-replace-in-string "\\." "/" (subseq module-name (length root-module)))))
-      (org-entry-put (point) "header-args" (format ":tangle %s%s.py" module-root-path module-file-name)))
+    (when with-org-section
+      (literate-python-new-org-section-for-a-module module-name level :title (or module-comment (f-ext module-name) module-name))
+      (let* ((module-root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
+             (root-module (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t))
+             (module-file-name (dired-replace-in-string "\\." "/" (subseq module-name (length root-module)))))
+        (org-entry-put (point) "header-args" (format ":tangle %s%s.py" module-root-path module-file-name))))
 
     (loop for (title . code) in code-blocks do
       (loop repeat new-level do (insert "*"))
@@ -668,8 +759,10 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
             next-node (ts-get-nth-child root next-index)
             next-node-type (ts-node-type next-node))
       (cl-case current-node-type 
+        (comment 
+         (incf current-index))
         ((import_statement import_from_statement)
-         (cond ((find next-node-type '(import_statement import_from_statement))
+         (cond ((find next-node-type '(import_statement import_from_statement comment))
                 (incf current-index))
                (t
                 (return-from literate-python-next-code-block-index (values current-index "Import statements")))))
@@ -777,7 +870,6 @@ def __PYTHON_EL_eval(source, filename, module=None):
         sys.excepthook(t, v, tb.tb_next)")
   )
 #+END_SRC
-
 * Tips
 ** how to start django server in REPL
 #+BEGIN_SRC python
