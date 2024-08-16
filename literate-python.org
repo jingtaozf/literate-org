@@ -51,20 +51,30 @@ So comes this library to help me import Python modules from org files in Emacs.
 ** black org code block when save
 #+BEGIN_SRC elisp
 (defun literate-python-black-org-code-block ()
-  (python-black-org-mode-block))
-'(eval-after-load "polymode" 
-  '(add-to-list 'polymode-run-these-before-save-functions-in-other-buffers
-    'literate-python-black-org-code-block))
+  (when (org-in-block-p '("src")) 
+    (let ((language (getf (second (org-element-at-point)) :language)))
+      (when (find language '("python" "ipython") :test #'equalp)
+        (python-black-org-mode-block t)))))
+#+END_SRC
+** black all org code blocks in current buffer
+#+BEGIN_SRC elisp
+(defun literate-python-black-org-code-blocks-in-current-buffer ()
+  (interactive)
+  (save-excursion
+    (goto-char (point-min))
+    (while (re-search-forward "#\\+BEGIN_SRC python" nil t)
+      (forward-line 1)
+      (unless (string-prefix-p "#+END_SRC" (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+        (literate-python-black-org-code-block)))))
 #+END_SRC
 ** tangle current file when save
 #+BEGIN_SRC elisp
 (defun literate-python-tangle-current-python-file ()
   (interactive)
   (let ((file-name (cdr (assoc :tangle (cl-third (org-babel-get-src-block-info 'light))))))
-    (when file-name
+    (when (equal "py" (f-ext file-name))
       (org-babel-tangle '(16) file-name))))
 #+END_SRC
-
 ** xref backend
 *** backend name
 #+BEGIN_SRC elisp
@@ -101,9 +111,22 @@ So comes this library to help me import Python modules from org files in Emacs.
 (cl-defmethod xref-backend-definitions ((_backend (eql xref-literate-python)) identifier)
   (let ((current-point (point)))
     (save-excursion
+      ;; `save-buffer' will tangle code blocks for current file.
+      (save-buffer)
       ;; reach to the start of a python file.
-      ;; (search-backward-regexp "^:header-args: :tangle .*?\\.py")
+      (search-backward-regexp "^:header-args: :tangle .*?\\.py")
       (xref-backend-definitions 'xref-lsp identifier))))
+#+END_SRC
+*** utilities
+#+BEGIN_SRC elisp
+(defun literate-python-get-point-in-tangled-file ()
+  (let ((current-point (point)))
+    (save-excursion
+      ;; `save-buffer' will tangle code blocks for current file.
+      (save-buffer)
+      ;; reach to the start of a python file.
+      (search-backward-regexp "^:header-args: :tangle .*?\\.py")
+      (point))))
 #+END_SRC
 
 * Python library for importing modules from org files
@@ -216,10 +239,11 @@ from collections import defaultdict
 **** Source Code Execution
 ***** customized variables for server host and port
 #+BEGIN_SRC elisp
-(defcustom literate-python-reset-server "http://localhost:7330/"
+(defcustom literate-python-rest-server "http://localhost:7330/"
   "The server address for literate python server."
   :type 'string
   :group 'literate-python)
+
 #+END_SRC
 ***** execute code in remote server
 #+BEGIN_SRC elisp
