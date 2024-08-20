@@ -25,6 +25,7 @@ So comes this library to help me import Python modules from org files in Emacs.
 * A minor mode for literate python
 :PROPERTIES:
 :literate-lang: elisp
+:header-args: :results silent :session :tangle no
 :END:
 ** definition
 #+BEGIN_SRC elisp
@@ -73,7 +74,7 @@ So comes this library to help me import Python modules from org files in Emacs.
   (interactive)
   (when-let ((file-name (cdr (assoc :tangle (cl-third (org-babel-get-src-block-info 'light))))))
    (when (equal "py" (f-ext file-name))
-     (org-babel-tangle '(16) file-name))))
+     (org-babel-tangle '(16) file-name "py"))))
 #+END_SRC
 ** xref backend
 *** backend name
@@ -130,6 +131,9 @@ So comes this library to help me import Python modules from org files in Emacs.
 #+END_SRC
 
 * Python library for importing modules from org files
+:PROPERTIES:
+:header-args: :results silent :session :tangle no
+:END:
 ** Idea
 Python has a flexible module import system that allows you to customize how modules are imported.
 This enables us to import modules from a different file format (e.g. an org file).
@@ -142,6 +146,9 @@ Python’s flexible import system to create a seamless workflow for developing a
 We also provide a way to execute Python code blocks in org files within specified Python modules,
 to allow for a more interactive development experience.
 ** Prototype
+:PROPERTIES:
+:header-args: :results silent :session :tangle no
+:END:
 Let's do some tests in Python.
 
 1. import the necessary modules
@@ -563,6 +570,7 @@ override our own compilation report.
 ** Package for python inspector
 :PROPERTIES:
 :LITERATE_PYTHON_EXPORT_PACKAGE: pyinspect
+:header-args: :results silent :session :tangle no
 :END:
 **** Import required packages
 #+BEGIN_SRC python
@@ -1089,6 +1097,9 @@ def __PYTHON_EL_eval(source, filename, module=None):
   )
 #+END_SRC
 * Tips
+:PROPERTIES:
+:header-args: :tangle no
+:END:
 ** how to start django server in REPL
 #+BEGIN_SRC python
 import os
