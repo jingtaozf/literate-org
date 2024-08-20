@@ -6,6 +6,8 @@ import json
 from flask import Flask, request, jsonify
 
 import traceback
+import builtins
+from IPython.lib import deepreload
 
 # To convert lisp ratio to python
 import fractions
@@ -17,55 +19,63 @@ from io import StringIO
 import logging
 
 logger = logging.getLogger(__name__)
+
 app = Flask(__name__)
 
-def process_a_message (message):
-    stdout_stream = StringIO();
-    stderr_stream = StringIO();
+def ensure_module(module_name, module_create_method):
+    """Ensure a module is loaded and return it."""
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+
+    match module_create_method:
+        case "create":
+            spec_module = importlib.util.spec_from_loader(module_name, loader=None)
+            module = importlib.util.module_from_spec(spec_module)
+            sys.modules[module_name] = module
+            return module
+        case "import":
+            importlib.import_module(module_name)
+            return sys.modules[module_name]
+        case "import_or_create":
+            if importlib.util.find_spec(module_name):
+                importlib.import_module(module_name)
+                return sys.modules[module_name]
+            else:
+                spec_module = importlib.util.spec_from_loader(module_name, loader=None)
+                module = importlib.util.module_from_spec(spec_module)
+                sys.modules[module_name] = module
+                return module
+        case _:
+            msg = f"Module {module_create_method} doesn't exist"
+            raise ValueError(msg)
+
+def process_a_message(message):
+    stdout_stream = StringIO()
+    stderr_stream = StringIO()
     error = None
     result = None
     with redirect_stdout(stdout_stream):
         with redirect_stderr(stderr_stream):
             try:
-                type = message['type']
-                code = message['code']
+                type = message["type"]
+                code = message["code"]
                 dict = globals()
-                module_name = message['module'] if 'module' in message else None 
+                module_name = message["module"] if "module" in message else None
                 if module_name:
-                    if module_name not in sys.modules:
-                        module_create_method = message['module-create-method'] if 'module-create-method' in message else "import"
-                        match module_create_method:
-                            case "create":
-                                spec_module = importlib.util.spec_from_loader(module_name, loader=None)
-                                module = importlib.util.module_from_spec(spec_module)
-                                sys.modules[module_name] = module
-                                dict = module.__dict__
-                            case "import":
-                                importlib.import_module(module_name)
-                                dict = sys.modules[module_name].__dict__
-                            case "import_or_create":
-                                if importlib.util.find_spec(module_name):
-                                    importlib.import_module(module_name)
-                                    dict = sys.modules[module_name].__dict__
-                                else:
-                                    spec_module = importlib.util.spec_from_loader(module_name, loader=None)
-                                    module = importlib.util.module_from_spec(spec_module)
-                                    sys.modules[module_name] = module
-                                    dict = module.__dict__
-                            case _:
-                                msg = f"Module {module_create_method} doesn't exist"
-                                raise ValueError(msg)
-                    else:
-                        dict = sys.modules[module_name].__dict__
-                        
+                    module_create_method = message.get("module-create-method", "import")
+                    module = ensure_module(module_name, module_create_method)
+                    dict = module.__dict__
+
                 if error is None:
                     if type == "eval":
                         result = eval(code, dict)
                     elif type == "exec":
-                        result = exec(compile(code, 'code', 'exec'), dict)
+                        result = exec(compile(code, "code", "exec"), dict)
+                        # if module is not None:
+                        #     deepreload(module)
                         logger.debug("Executed code: %s,result:%s", code, result)
                     elif type == "status":
-                        result = {'alive': True}
+                        result = {"alive": True}
                     elif type == "quit":
                         result = None
                     else:
@@ -76,15 +86,25 @@ def process_a_message (message):
                 traceback.print_exc()
                 error = str(e)
     if error is None:
-        return_value = {'result':result, 'type':'result', 'stdout':stdout_stream.getvalue(), 'stderr':stderr_stream.getvalue()}
+        return_value = {
+            "result": result,
+            "type": "result",
+            "stdout": stdout_stream.getvalue(),
+            "stderr": stderr_stream.getvalue(),
+        }
     else:
-        return_value = {'error':error, 'type':'error', 'stdout':stdout_stream.getvalue(), 'stderr':stderr_stream.getvalue()}
+        return_value = {
+            "error": error,
+            "type": "error",
+            "stdout": stdout_stream.getvalue(),
+            "stderr": stderr_stream.getvalue(),
+        }
 
     if type == "quit":
         sys.exit(0)
     else:
         return return_value
-        
+
 @app.route('/execute', methods=['POST'])
 def execute():
     # Get JSON data

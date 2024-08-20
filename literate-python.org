@@ -7,7 +7,7 @@
 #+PROPERTY: literate-lang python
 #+PROPERTY: literate-load yes
 #+PROPERTY: literate-insert-header no
-#+PROPERTY: header-args :results silent :session
+#+PROPERTY: header-args :results silent :session :tangle no
 #+PROPERTY: LITERATE_PYTHON_EXPORT_DIRECTORY: ./literate_python
 
 * Introduction
@@ -71,9 +71,9 @@ So comes this library to help me import Python modules from org files in Emacs.
 #+BEGIN_SRC elisp
 (defun literate-python-tangle-current-python-file ()
   (interactive)
-  (let ((file-name (cdr (assoc :tangle (cl-third (org-babel-get-src-block-info 'light))))))
-    (when (equal "py" (f-ext file-name))
-      (org-babel-tangle '(16) file-name))))
+  (when-let ((file-name (cdr (assoc :tangle (cl-third (org-babel-get-src-block-info 'light))))))
+   (when (equal "py" (f-ext file-name))
+     (org-babel-tangle '(16) file-name))))
 #+END_SRC
 ** xref backend
 *** backend name
@@ -203,41 +203,234 @@ For example
    say_hello()
    ,#+END_SRC
 #+END_EXAMPLE
-** Implementation
+** Implementation in python side
 :PROPERTIES:
 :LITERATE_PYTHON_MODULE: lpy
+:LITERATE_PYTHON_ROOT_MODULE_PATH: ./
 :END:
-*** Package for customized org-file import
+*** __init__
 :PROPERTIES:
-:LITERATE_PYTHON_EXPORT_PACKAGE: org_importer
+:LITERATE_PYTHON_MODULE: lpy.__init__
+:header-args: :tangle ./lpy/__init__.py
 :END:
-**** import dependent packages
+**** Assignment __version__
 #+BEGIN_SRC python
-import sys
-import os
-import importlib.abc
-import importlib.util
-import orgparse
-from collections import defaultdict
-#+END_SRC
-**** a function to parse an org file
-#+BEGIN_SRC python
+__version__ = "0.0.1"
 
 #+END_SRC
-*** The Emacs interface for org importer
+*** __main__
+:PROPERTIES:
+:LITERATE_PYTHON_MODULE: lpy.__main__
+:header-args: :tangle ./lpy/__main__.py
+:END:
+**** Import statements
+#+BEGIN_SRC python
+from .pipe import run_server
+
+#+END_SRC
+**** Call run_server
+#+BEGIN_SRC python
+run_server()
+
+#+END_SRC
+*** json
+:PROPERTIES:
+:LITERATE_PYTHON_MODULE: lpy.json
+:header-args: :tangle ./lpy/json.py
+:END:
+**** Import statements
+#+BEGIN_SRC python
+import calendar, datetime
+
+#+END_SRC
+**** Function default_json_encoder
+#+BEGIN_SRC python
+def default_json_encoder(obj):
+    """Default JSON serializer."""
+    if isinstance(obj, datetime.datetime):
+        if obj.utcoffset() is not None:
+            obj = obj - obj.utcoffset()
+        millis = int(
+            calendar.timegm(obj.timetuple()) * 1000 +
+            obj.microsecond / 1000
+        )
+        return millis
+    else:
+        return str(obj)
+
+#+END_SRC
+*** server
+:PROPERTIES:
+:LITERATE_PYTHON_MODULE: lpy.server
+:header-args: :tangle ./lpy/server.py
+:END:
+**** Import statements
+#+BEGIN_SRC python
+import importlib
+import os
+import sys
+import time
+import json
+from flask import Flask, request, jsonify
+
+import traceback
+import builtins
+from IPython.lib import deepreload
+
+# To convert lisp ratio to python
+import fractions
+from contextlib import redirect_stdout
+from contextlib import redirect_stderr
+from io import StringIO
+from io import StringIO
+
+import logging
+
+#+END_SRC
+**** Assignment logger
+#+BEGIN_SRC python
+logger = logging.getLogger(__name__)
+
+#+END_SRC
+**** Assignment app
+#+BEGIN_SRC python
+app = Flask(__name__)
+
+#+END_SRC
+**** ensure a module is loaded
+#+BEGIN_SRC python
+def ensure_module(module_name, module_create_method):
+    """Ensure a module is loaded and return it."""
+    if module_name in sys.modules:
+        return sys.modules[module_name]
+
+    match module_create_method:
+        case "create":
+            spec_module = importlib.util.spec_from_loader(module_name, loader=None)
+            module = importlib.util.module_from_spec(spec_module)
+            sys.modules[module_name] = module
+            return module
+        case "import":
+            importlib.import_module(module_name)
+            return sys.modules[module_name]
+        case "import_or_create":
+            if importlib.util.find_spec(module_name):
+                importlib.import_module(module_name)
+                return sys.modules[module_name]
+            else:
+                spec_module = importlib.util.spec_from_loader(module_name, loader=None)
+                module = importlib.util.module_from_spec(spec_module)
+                sys.modules[module_name] = module
+                return module
+        case _:
+            msg = f"Module {module_create_method} doesn't exist"
+            raise ValueError(msg)
+
+#+END_SRC
+
+**** Function process_a_message
+#+BEGIN_SRC python
+def process_a_message(message):
+    stdout_stream = StringIO()
+    stderr_stream = StringIO()
+    error = None
+    result = None
+    with redirect_stdout(stdout_stream):
+        with redirect_stderr(stderr_stream):
+            try:
+                type = message["type"]
+                code = message["code"]
+                dict = globals()
+                module_name = message["module"] if "module" in message else None
+                if module_name:
+                    module_create_method = message.get("module-create-method", "import")
+                    module = ensure_module(module_name, module_create_method)
+                    dict = module.__dict__
+
+                if error is None:
+                    if type == "eval":
+                        result = eval(code, dict)
+                    elif type == "exec":
+                        result = exec(compile(code, "code", "exec"), dict)
+                        # if module is not None:
+                        #     deepreload(module)
+                        logger.debug("Executed code: %s,result:%s", code, result)
+                    elif type == "status":
+                        result = {"alive": True}
+                    elif type == "quit":
+                        result = None
+                    else:
+                        error = "Unknown type: {}".format(type)
+                        raise ValueError(error)
+            except Exception as e:
+                # printing stack trace
+                traceback.print_exc()
+                error = str(e)
+    if error is None:
+        return_value = {
+            "result": result,
+            "type": "result",
+            "stdout": stdout_stream.getvalue(),
+            "stderr": stderr_stream.getvalue(),
+        }
+    else:
+        return_value = {
+            "error": error,
+            "type": "error",
+            "stdout": stdout_stream.getvalue(),
+            "stderr": stderr_stream.getvalue(),
+        }
+
+    if type == "quit":
+        sys.exit(0)
+    else:
+        return return_value
+
+#+END_SRC
+**** @app.route('/execute', methods=['POST']): Function execute
+#+BEGIN_SRC python
+@app.route('/execute', methods=['POST'])
+def execute():
+    # Get JSON data
+    data = request.get_json()
+
+    # Process the data (example)
+    logger.debug("/execute Received:%s", data)
+    return_value = process_a_message(data)
+
+    # Return a response
+    logger.debug("/execute Returning:%s", return_value)
+    return jsonify(return_value)
+
+#+END_SRC
+**** Function run_server
+#+BEGIN_SRC python
+def run_server():
+    host = '127.0.0.1'
+    port = 7330
+    if 'LITERATE_PYTHON_HOST' in os.environ:
+        host = os.environ['LITERATE_PYTHON_HOST']
+    if 'LITERATE_PYTHON_PORT' in os.environ:
+        port = int(os.environ['LITERATE_PYTHON_PORT'])
+    app.run(debug=True, port=port, host=host, use_reloader=False)
+
+#+END_SRC
+
+** The Emacs interface
 :PROPERTIES:
 :literate-lang: elisp
 :END:
-**** Import required elisp libraries
+*** Import required elisp libraries
 #+BEGIN_SRC elisp
+(require 'subr); when-let
 (require 'f)
 (require 'files)
 (require 'ob-python)
 (require 'lsp);; for `lsp-workspace-root'
 (require 'python-black)
 #+END_SRC
-**** Source Code Execution
-***** customized variables for server host and port
+*** Source Code Execution
+**** customized variables for server host and port
 #+BEGIN_SRC elisp
 (defcustom literate-python-rest-server "http://localhost:7330/"
   "The server address for literate python server."
@@ -245,7 +438,7 @@ from collections import defaultdict
   :group 'literate-python)
 
 #+END_SRC
-***** execute code in remote server
+**** execute code in remote server
 #+BEGIN_SRC elisp
 (defvar literate-python-last-response nil)
 (cl-defun literate-python-request (path &key params data (type "GET"))
@@ -282,7 +475,7 @@ from collections import defaultdict
     resp))
 #+END_SRC
 
-***** execute source codes in specified module for org-babel-python-evaluate
+**** execute source codes in specified module for org-babel-python-evaluate
 #+BEGIN_SRC elisp
 (defun literate-python-setup-org-babel ()
   (setf org-babel-python--exec-tmpfile
@@ -290,7 +483,7 @@ from collections import defaultdict
 with open('%s') as __org_babel_python_tmpfile:
     exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'))"))
 #+END_SRC
-***** execute source code in remote server
+**** execute source code in remote server
 #+BEGIN_SRC elisp
 (cl-defun literate-python-execute-code (code &key (type :exec) (module) (module-create-method "import_or_create"))
   (literate-python-request "execute" :type "POST"
@@ -299,7 +492,7 @@ with open('%s') as __org_babel_python_tmpfile:
                                    (module-create-method . ,module-create-method)
                                    (code . ,code))))
 #+END_SRC
-***** execute source code in current code block
+**** execute source code in current code block
 We have to switch back to org buffer, otherwise =org-babel-execute-src-block-maybe= will report a message and
 override our own compilation report.
 #+BEGIN_SRC elisp
@@ -316,7 +509,7 @@ override our own compilation report.
     (literate-python-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded current code block in module %s" module-name)))
 #+END_SRC
-***** get top level python code
+**** get top level python code
 #+BEGIN_SRC elisp
 (defun literate-python-get-top-level-node-at-point ()
   "Get the current top level node at point, return a cons of start and end position."
@@ -327,23 +520,7 @@ override our own compilation report.
       (setq parent (treesit-node-parent node)))
     node))
 #+END_SRC
-***** how to run python code in a namespace
-#+BEGIN_SRC elisp
-(defconst literate-python--exec-tmpfile-in-a-module "\
-import sys
-_tmp_file = '%s'
-_module_name = '%s'
-if _module_name not in sys.modules:
-   import importlib
-   importlib.import_module(_module_name)
-with open(_tmp_file) as __org_babel_python_tmpfile:
-   exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'), sys.modules[_module_name].__dict__)"
-  "Template for installing source code in a namespace.
-
-Has two %s escape, the tempfile containing the source code
-to evaluate, and the target namespace for the code.")
-#+END_SRC
-***** get the module name for a file name
+**** get the module name for a file name
 #+BEGIN_SRC elisp
 (cl-defun literate-python-module-name-from-file-name (&optional (file (buffer-file-name)))
   "Get the module name from a file name."
@@ -353,7 +530,7 @@ to evaluate, and the target namespace for the code.")
       (setf relative-name (apply 'f-join (nthcdr 4 (split-string relative-name "/")))))
     (dired-replace-in-string "/" "." relative-name)))
 #+END_SRC
-***** load python code to current module
+**** load python code to current module
 #+BEGIN_SRC elisp
 (defun literate-python-load-code-in-current-namespace ()
   (interactive)
@@ -666,6 +843,23 @@ The comment for a module is usually the first string in the Python file before a
   "String")
 #+END_SRC
 
+***** comment
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql comment)) node)
+  "Comment")
+#+END_SRC
+
+***** import
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql import)) node)
+  "Import")
+#+END_SRC
+***** import_from_statement
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql import_from_statement)) node)
+  "Import")
+#+END_SRC
+
 ***** expression
 #+BEGIN_SRC elisp
 (cl-defmethod literate-python-node-name ((node-type (eql expression_statement)) node)
@@ -916,6 +1110,8 @@ server_thread.start()
 
 print("Django server started on http://127.0.0.1:8000")
 #+END_SRC
+* TODO[0/1]
+- [ ] After reloading a definition in a code block, all modules that depend on the module to which this definition belongs are automatically reloaded.
 * References
 - [[https://peps.python.org/pep-0302/][PEP 302 -- New Import Hooks]]
 - [[https://nbdev.fast.ai/tutorials/tutorial.html][nbdev]] (Create delightful software with Jupyter Notebooks)
