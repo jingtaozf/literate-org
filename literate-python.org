@@ -1018,17 +1018,26 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 #+END_SRC
 **** get the next code block index
 #+BEGIN_SRC elisp
-(cl-defun literate-python-next-code-block-index (root current-index)
+(cl-defun literate-python-next-code-block-index (root start-index)
   (let* ((max-index (1- (tsc-count-children root)))
+         (current-index start-index)
          (current-node nil)
          (current-node-type nil)
          (next-index nil)
          (next-node-type nil)
          (next-node nil)
-         (next-title nil))
+         (next-title nil)
+         (collected-valid-node-types nil)
+         (previous-node nil)
+         (previous-node-type nil))
     (while (<= current-index max-index)
+      (setf previous-node current-node)
+      (setf previous-node-type current-node-type)
       (setf current-node (ts-get-nth-child root current-index))
       (setf current-node-type (ts-node-type current-node))
+      (unless (eq 'comment current-node-type)
+        (push current-node-type collected-valid-node-types))
+
       (when (= current-index max-index)
         (return-from literate-python-next-code-block-index (values max-index (literate-python-node-name current-node-type current-node))))
       (setf next-index (1+ current-index)
@@ -1036,7 +1045,12 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
             next-node-type (ts-node-type next-node))
       (cl-case current-node-type 
         (comment 
-         (incf current-index))
+         (if (and previous-node-type
+                  (not (find previous-node-type '(comment)) )
+                  (find (first collected-valid-node-types) '(import_statement import_from_statement))
+                  (not (find next-node-type '(import_statement import_from_statement comment))))
+           (return-from literate-python-next-code-block-index (values (1- current-index) (literate-python-node-name previous-node-type previous-node)))
+           (incf current-index)))
         ((import_statement import_from_statement)
          (cond ((find next-node-type '(import_statement import_from_statement comment))
                 (incf current-index))
