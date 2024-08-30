@@ -119,10 +119,10 @@ def execute():
     return jsonify(return_value)
 
 def run_server():
-    host = '127.0.0.1'
+    host = "127.0.0.1"
     port = 7330
-    if 'LITERATE_PYTHON_HOST' in os.environ:
-        host = os.environ['LITERATE_PYTHON_HOST']
-    if 'LITERATE_PYTHON_PORT' in os.environ:
-        port = int(os.environ['LITERATE_PYTHON_PORT'])
+    if "LITERATE_PYTHON_HOST" in os.environ:
+        host = os.environ["LITERATE_PYTHON_HOST"]
+    if "LITERATE_PYTHON_PORT" in os.environ:
+        port = int(os.environ["LITERATE_PYTHON_PORT"])
     app.run(debug=True, port=port, host=host, use_reloader=False)

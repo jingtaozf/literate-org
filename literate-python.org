@@ -1,5 +1,5 @@
 # -*- Mode: POLY-ORG ; common-lisp-style: elisp; indent-tabs-mode: nil;  -*- ---
-#+Title: Load python modules from org files
+#+Title: Develop Python modules in Org files.
 #+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
 #+STARTUP: latexpreview
 #+STARTUP: noindent
@@ -130,7 +130,7 @@ So comes this library to help me import Python modules from org files in Emacs.
       (point))))
 #+END_SRC
 
-* Python library for importing modules from org files
+* Python library for a literate server
 :PROPERTIES:
 :header-args: :results silent :session :tangle no
 :END:
@@ -266,7 +266,7 @@ def default_json_encoder(obj):
         return str(obj)
 
 #+END_SRC
-*** server
+*** web server
 :PROPERTIES:
 :LITERATE_PYTHON_MODULE: lpy.server
 :header-args: :tangle ./lpy/server.py
@@ -410,15 +410,15 @@ def execute():
     return jsonify(return_value)
 
 #+END_SRC
-**** Function run_server
+**** Function run_web_server
 #+BEGIN_SRC python
 def run_server():
-    host = '127.0.0.1'
+    host = "127.0.0.1"
     port = 7330
-    if 'LITERATE_PYTHON_HOST' in os.environ:
-        host = os.environ['LITERATE_PYTHON_HOST']
-    if 'LITERATE_PYTHON_PORT' in os.environ:
-        port = int(os.environ['LITERATE_PYTHON_PORT'])
+    if "LITERATE_PYTHON_HOST" in os.environ:
+        host = os.environ["LITERATE_PYTHON_HOST"]
+    if "LITERATE_PYTHON_PORT" in os.environ:
+        port = int(os.environ["LITERATE_PYTHON_PORT"])
     app.run(debug=True, port=port, host=host, use_reloader=False)
 
 #+END_SRC
@@ -429,7 +429,6 @@ def run_server():
 :END:
 *** Import required elisp libraries
 #+BEGIN_SRC elisp
-(require 'subr); when-let
 (require 'f)
 (require 'files)
 (require 'ob-python)
@@ -792,11 +791,13 @@ The comment for a module is usually the first string in the Python file before a
 (defun literate-python-module-comment-from-node (node)
   (when (eq 'module (tsc-node-type node)) 
     (let* ((index 0)
-           (child (tsc-get-nth-child node index)))
-      (while (eq 'comment (tsc-node-type child))
+                (child (tsc-get-nth-child node index)))
+      (while (and child
+                  (eq 'comment (tsc-node-type child)))
         (incf index)
         (setq child (tsc-get-nth-child node index)))
-      (when (eq 'expression_statement (tsc-node-type child))
+      (when (and child
+                 (eq 'expression_statement (tsc-node-type child)))
         (setf child (tsc-get-nth-child child 0))
         (when (eq 'string (tsc-node-type child))
           (tsc-node-text (tsc-get-nth-child child 1)))))))
@@ -836,15 +837,46 @@ The comment for a module is usually the first string in the Python file before a
 ***** assignment
 #+BEGIN_SRC elisp
 (cl-defmethod literate-python-node-name ((node-type (eql assignment)) node)
-  (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))
+  (let ((code (dired-replace-in-string "\n" " " (tsc-node-text node))))
+    (if (<= (length code) literate-python-max-title-size)
+      (format "Assignment %s" code)
+      (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))))
 #+END_SRC
 
+***** augmented_assignment
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql augmented_assignment)) node)
+  (let ((code (dired-replace-in-string "\n" " " (tsc-node-text node))))
+    (if (<= (length code) literate-python-max-title-size)
+      (format "Assignment %s" code)
+      (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))))
+#+END_SRC
 ***** call
 #+BEGIN_SRC elisp
 (cl-defmethod literate-python-node-name ((node-type (eql call)) node)
-  (format "Call %s" (tsc-node-text (tsc-get-child-by-field node :function))))
+  (let ((call-code (dired-replace-in-string "\n" " " (tsc-node-text node))))
+    (if (<= (length call-code) literate-python-max-title-size)
+      (format "Call %s" call-code)
+      (format "Call %s" (tsc-node-text (tsc-get-child-by-field node :function))))))
 #+END_SRC
 
+***** try
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql try_statement)) node)
+  "Try statement")
+#literate-python/+END_SRC
+
+***** while
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name ((node-type (eql while_statement)) node)
+  "While statement")
+#+END_SRC
+
+***** the default implementation
+#+BEGIN_SRC elisp
+(cl-defmethod literate-python-node-name (node-type node)
+  (format "%s" node-type))
+#+END_SRC
 ***** string
 #+BEGIN_SRC elisp
 (cl-defmethod literate-python-node-name ((node-type (eql string)) node)
@@ -878,28 +910,38 @@ The comment for a module is usually the first string in the Python file before a
 **** ignored directories
 #+BEGIN_SRC elisp
 (defcustom literate-python-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea")
-  "The directories to be ignored when importing Python packages.")
+  "The directories to be ignored when importing Python packages."
+  :group 'literate-python)
+#+END_SRC
+
+**** the maximum size of a title for an org section
+#+BEGIN_SRC elisp
+(defcustom literate-python-max-title-size 80
+  "The maximum size of a title for an org section."
+  :group 'literate-python)
 #+END_SRC
 
 **** iterate a directory to import Python files
 #+BEGIN_SRC elisp
 (cl-defun literate-python-import-python-package (&key (level (or (org-current-level) 0))
-                                                      (module-name (or (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)
-                                                                       (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t)))
-                                                      (module-path (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_PATH" t)
-                                                                       (let* ((root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
-                                                                              (path (when root-path
-                                                                                      (concat root-path "/" (dired-replace-in-string "\\." "/" module-name)))))
-                                                                         (when path
-                                                                           (if (f-directory? path)
-                                                                             path
-                                                                             (let ((path (concat path ".py")))
-                                                                               (if (f-exists-p path)
-                                                                                 path
-                                                                                 (user-error "No module path found:%s" path)))))))))
+                                                      module-name module-path)
   "Import Python codes from a directory to an org file."
   (interactive "")
-  (let* ((new-level (1+ level)))
+  (let* ((module-name (or module-name
+                          (or (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)
+                              (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t))))
+         (module-path (or module-path
+                          (let* ((root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
+                                 (path (when root-path
+                                         (concat root-path "/" (dired-replace-in-string "\\." "/" module-name)))))
+                            (when path
+                              (if (f-directory? path)
+                                path
+                                (let ((path (concat path ".py")))
+                                  (if (f-exists-p path)
+                                    path)))))
+                          (org-entry-get (point) "LITERATE_PYTHON_MODULE_PATH" t)))
+         (new-level (1+ level)))
     (if (f-directory-p module-path)
       (progn
         (dolist (file (directory-files module-path t "\.py$"))
@@ -914,8 +956,7 @@ The comment for a module is usually the first string in the Python file before a
                           thereis (search ignored-name new-module-name))
               (literate-python-new-org-section-for-a-module new-module-name new-level :title (or (f-ext relative-name) relative-name))
               (literate-python-import-python-package :level new-level :module-name new-module-name :module-path directory)))))
-      (progn
-        (literate-python-import-python-code-to-org module-path level module-name :with-org-section nil)))))
+      (literate-python-import-python-code-to-org module-path level module-name :with-org-section nil))))
 #+END_SRC
 **** get pieces of code blocks in a python file
 To investigate the parse tree, we can use Emacs command [[https://github.com/emacs-mirror/emacs/blob/master/admin/notes/tree-sitter/starter-guide#query-references][treesit-explore-mode]]
@@ -946,17 +987,26 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 
 **** import a python file
 #+BEGIN_SRC elisp
-(defcustom literate-python-org-babel-lang "python" "The org-babel language for literate python.")
+(defcustom literate-python-org-babel-lang "python" "The org-babel language for literate python."
+  :group 'literate-python)
+
 (cl-defun literate-python-import-python-code-to-org (file level module-name &key (with-org-section t))
   (let* ((new-level (1+ level))
            (code-blocks-info (literate-python-get-code-blocks-in-file file))
          (module-comment (car code-blocks-info))
+         (module-title (when module-comment
+                        (first (split-string module-comment "\n" t nil))))
          (code-blocks (cdr code-blocks-info)))
     (when with-org-section
-      (literate-python-new-org-section-for-a-module module-name level :title (or module-comment (f-ext module-name) module-name))
+      (literate-python-new-org-section-for-a-module module-name level :title (or module-title (f-ext module-name) module-name))
       (let* ((module-root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
              (root-module (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t))
-             (module-file-name (dired-replace-in-string "\\." "/" (subseq module-name (length root-module)))))
+             (module-file-name (dired-replace-in-string "\\." "/" (if root-module
+                                                                    (subseq module-name (length root-module))
+                                                                    module-name))))
+        (when (and (> (length module-root-path) 0)
+                   (not (string-suffix-p "/" module-root-path)))
+          (setf module-root-path (concat module-root-path "/")))
         (org-entry-put (point) "header-args" (format ":tangle %s%s.py" module-root-path module-file-name))))
 
     (loop for (title . code) in code-blocks do
