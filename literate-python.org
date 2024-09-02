@@ -864,7 +864,7 @@ The comment for a module is usually the first string in the Python file before a
 #+BEGIN_SRC elisp
 (cl-defmethod literate-python-node-name ((node-type (eql try_statement)) node)
   "Try statement")
-#literate-python/+END_SRC
+#+END_SRC
 
 ***** while
 #+BEGIN_SRC elisp
