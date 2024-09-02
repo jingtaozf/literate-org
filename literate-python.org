@@ -35,9 +35,13 @@
     - [[#web-server][web server]]
 - [[#the-emacs-library][The Emacs library]]
   - [[#import-required-elisp-libraries][Import required elisp libraries]]
+  - [[#utilities-1][Utilities]]
+    - [[#send-request-to-remote-literate-server][send request to remote literate server]]
+  - [[#register-literate-modules][Register literate modules]]
+    - [[#register-literate-modules-1][register literate modules]]
+    - [[#register-modules-for-code-blocks-under-current-point][register modules for code blocks under current point]]
   - [[#source-code-execution][Source Code Execution]]
     - [[#customized-variables-for-server-host-and-port][customized variables for server host and port]]
-    - [[#execute-code-in-remote-server][execute code in remote server]]
     - [[#execute-source-codes-in-specified-module-for-org-babel-python-evaluate][execute source codes in specified module for org-babel-python-evaluate]]
     - [[#execute-source-code-in-remote-server][execute source code in remote server]]
     - [[#execute-source-code-in-current-code-block][execute source code in current code block]]
@@ -341,12 +345,21 @@ import logging
 logger = logging.getLogger(__name__)
 
 #+END_SRC
-**** Initialize in-memory module storage
+**** in-memory module storage
+***** the global parameter
 #+BEGIN_SRC python
 if "inMemoryModules" not in globals():
     inMemoryModules = {}
 
 #+END_SRC
+***** a method to register a list of modules
+#+BEGIN_SRC python
+def register_literate_modules(module_spec_list: list) -> None:
+    for module_spec in module_spec_list:
+        inMemoryModules[module_spec["name"]] = module_spec
+
+#+END_SRC
+
 **** find a module
 #+BEGIN_SRC python
 def _get_module_spec(fullname: str) -> bool:
@@ -354,7 +367,7 @@ def _get_module_spec(fullname: str) -> bool:
 
 #+END_SRC
 
-**** LiterateImporter
+**** a literate module importer
 #+BEGIN_SRC python
 class LiterateImporter(object):
     def find_module(self, fullname: str, path=None):
@@ -426,7 +439,8 @@ from io import StringIO
 
 import logging
 
-from loader import register_literate_module_finder
+from textwrap import shorten
+from lpy.loader import register_literate_modules, register_literate_module_finder
 
 #+END_SRC
 **** Assignment logger
@@ -528,20 +542,60 @@ def process_a_message(message):
 
 #+END_SRC
 **** register in memory python modules 
-**** @app.route('/execute', methods=['POST']): Function execute
+**** register
 #+BEGIN_SRC python
-@app.route('/execute', methods=['POST'])
-def execute():
+def _register(request):
     # Get JSON data
     data = request.get_json()
 
     # Process the data (example)
-    logger.debug("/execute Received:%s", data)
+    logger.debug(
+        "/register Received:%s", shorten(str(data), width=100, placeholder="...")
+    )
+    try:
+        register_literate_modules(data)
+        return_value = {"type": "done"}
+    except Exception as e:
+        # printing stack trace
+        return_value = {"type": "error", "stderr": str(e)}
+        traceback.print_exc()
+
+    # Return a response
+    logger.debug("/register Returning:%s", return_value)
+    return jsonify(return_value)
+
+#+END_SRC
+
+**** @app.route('/register, methods=['POST']): register literate modules
+#+BEGIN_SRC python
+@app.route("/register", methods=["POST"])
+def register():
+    return _register(request)
+
+#+END_SRC
+**** execute
+#+BEGIN_SRC python
+def _execute(request):
+    # Get JSON data
+    data = request.get_json()
+
+    # Process the data (example)
+    logger.debug(
+        "/execute Received:%s", shorten(str(data), width=100, placeholder="...")
+    )
     return_value = process_a_message(data)
 
     # Return a response
     logger.debug("/execute Returning:%s", return_value)
     return jsonify(return_value)
+
+#+END_SRC
+
+**** @app.route('/execute', methods=['POST']): Function execute
+#+BEGIN_SRC python
+@app.route("/execute", methods=["POST"])
+def execute():
+    return _execute(request)
 
 #+END_SRC
 **** Function run_web_server
@@ -571,17 +625,8 @@ def run_server():
 (require 'python-black)
 #+END_SRC
 
-** Source Code Execution
-*** customized variables for server host and port
-#+BEGIN_SRC elisp
-(defcustom literate-python-rest-server "http://localhost:7330/"
-  "The server address for literate python server."
-  :type 'string
-  :local t
-  :group 'literate-python)
-
-#+END_SRC
-*** execute code in remote server
+** Utilities
+*** send request to remote literate server
 #+BEGIN_SRC elisp
 (defvar literate-python-last-response nil)
 (cl-defun literate-python-request (path &key params data (type "GET"))
@@ -615,7 +660,7 @@ def run_server():
                (with-current-buffer (get-buffer-create "*literate-python-error*")
                  (erase-buffer)
                  (insert "=== Data ===\n" (encode-coding-string (json-encode data) 'utf-8 t) "\n\n")
-                 (insert "==== Error ===\n" (cdr (assoc 'error resp)))
+                 (insert "==== Error ===\n" (or (cdr (assoc 'error resp)) ""))
                  (when stdout 
                    (insert "\n\n=== stdout ===\n" stdout))
                  (when stderr
@@ -624,6 +669,50 @@ def run_server():
     resp))
 #+END_SRC
 
+
+** Register literate modules
+*** register literate modules
+#+BEGIN_SRC elisp
+(defun literate-python-remote-register-modules (modules)
+  (literate-python-request "register" :type "POST"
+                           :data modules))
+#+END_SRC
+*** register modules for code blocks under current point
+#+BEGIN_SRC elisp
+(defun literate-python-register-modules ()
+  (interactive)
+  (let* ((element (org-element-at-point))
+         (info (second element))
+         (begin (plist-get info :begin))
+         (end (plist-get info :end))
+         (modules (make-hash-table :test 'equal)))
+    (if current-prefix-arg
+      (setf end (point-max))
+      (unless (eq 'headline (first element))
+        (user-error "Please move point to a headline.")))
+    (goto-char begin)
+    (while (search-forward "#+BEGIN_SRC python" end t)
+      (let* ((context-info (second (org-element-context)))
+             (module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t))
+             (code (plist-get context-info :value)))
+        (push code (gethash module-name modules nil))))
+    (let ((modules-list (cl-loop for key being the hash-keys of modules collect
+                                 `((name . ,key)
+                                   ("content" . ,(mapconcat 'identity (reverse (gethash key modules)) "\n"))))))
+      (literate-python-remote-register-modules modules-list)
+      (message "Registered %s modules." (hash-table-size modules)))))
+#+END_SRC
+
+** Source Code Execution
+*** customized variables for server host and port
+#+BEGIN_SRC elisp
+(defcustom literate-python-rest-server "http://localhost:7330/"
+  "The server address for literate python server."
+  :type 'string
+  :local t
+  :group 'literate-python)
+
+#+END_SRC
 *** execute source codes in specified module for org-babel-python-evaluate
 #+BEGIN_SRC elisp
 (defun literate-python-setup-org-babel ()
@@ -634,7 +723,7 @@ with open('%s') as __org_babel_python_tmpfile:
 #+END_SRC
 *** execute source code in remote server
 #+BEGIN_SRC elisp
-(cl-defun literate-python-execute-code (code &key (type :exec) (module) (module-create-method "import_or_create"))
+(cl-defun literate-python-remote-execute-code (code &key (type :exec) (module) (module-create-method "import_or_create"))
   (literate-python-request "execute" :type "POST"
                            :data `((type . ,(subseq (symbol-name type) 1))
                                    (module . ,module)
@@ -655,7 +744,7 @@ override our own compilation report.
          (module-create-method (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_CREATE_METHOD" t)
                                    "import_or_create"))
          (module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)))
-    (literate-python-execute-code code :type :exec :module module-name :module-create-method module-create-method)
+    (literate-python-remote-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded current code block in module %s" module-name)))
 #+END_SRC
 *** get top level python code
@@ -705,7 +794,7 @@ override our own compilation report.
         (when (> index 0)
           (setf module-name (substring module-name index)))))
 
-    (literate-python-execute-code code :type :exec :module module-name :module-create-method module-create-method)
+    (literate-python-remote-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded %s[%s:%s] in module %s" (treesit-node-type node) begin end module-name)))
 #+END_SRC
 ** register python modules 

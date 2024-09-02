@@ -17,7 +17,8 @@ from io import StringIO
 
 import logging
 
-from lpy.loader import register_literate_module_finder
+from textwrap import shorten
+from lpy.loader import register_literate_modules, register_literate_module_finder
 
 logger = logging.getLogger(__name__)
 
@@ -104,18 +105,47 @@ def process_a_message(message):
     else:
         return return_value
 
-@app.route('/execute', methods=['POST'])
-def execute():
+def _register(request):
     # Get JSON data
     data = request.get_json()
 
     # Process the data (example)
-    logger.debug("/execute Received:%s", data)
+    logger.debug(
+        "/register Received:%s", shorten(str(data), width=100, placeholder="...")
+    )
+    try:
+        register_literate_modules(data)
+        return_value = {"type": "done"}
+    except Exception as e:
+        # printing stack trace
+        return_value = {"type": "error", "stderr": str(e)}
+        traceback.print_exc()
+
+    # Return a response
+    logger.debug("/register Returning:%s", return_value)
+    return jsonify(return_value)
+
+@app.route("/register", methods=["POST"])
+def register():
+    return _register(request)
+
+def _execute(request):
+    # Get JSON data
+    data = request.get_json()
+
+    # Process the data (example)
+    logger.debug(
+        "/execute Received:%s", shorten(str(data), width=100, placeholder="...")
+    )
     return_value = process_a_message(data)
 
     # Return a response
     logger.debug("/execute Returning:%s", return_value)
     return jsonify(return_value)
+
+@app.route("/execute", methods=["POST"])
+def execute():
+    return _execute(request)
 
 def run_server():
     host = "127.0.0.1"

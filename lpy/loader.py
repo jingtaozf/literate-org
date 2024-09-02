@@ -10,6 +10,10 @@ logger = logging.getLogger(__name__)
 if "inMemoryModules" not in globals():
     inMemoryModules = {}
 
+def register_literate_modules(module_spec_list: list) -> None:
+    for module_spec in module_spec_list:
+        inMemoryModules[module_spec["name"]] = module_spec
+
 def _get_module_spec(fullname: str) -> bool:
     return inMemoryModules.get(fullname) or inMemoryModules.get(fullname + ".__init__")
 
