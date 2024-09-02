@@ -151,3 +151,5 @@ checklink/cookies.txt
 .quarto
 /.virtual_documents/
 /README.md.tmp
+/marimo.org
+/marimo.py

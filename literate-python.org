@@ -7,8 +7,63 @@
 #+PROPERTY: literate-lang python
 #+PROPERTY: literate-load yes
 #+PROPERTY: literate-insert-header no
+#+PROPERTY: LITERATE_PYTHON_SERVER http://localhost:7332/
 #+PROPERTY: header-args :results silent :session :tangle no
 #+PROPERTY: LITERATE_PYTHON_EXPORT_DIRECTORY: ./literate_python
+* Table of Contents                                            :noexport:TOC:
+- [[#introduction][Introduction]]
+- [[#a-minor-mode-for-literate-python][A minor mode for literate python]]
+  - [[#definition][definition]]
+  - [[#black-org-code-block-when-save][black org code block when save]]
+  - [[#black-all-org-code-blocks-in-current-buffer][black all org code blocks in current buffer]]
+  - [[#tangle-current-file-when-save][tangle current file when save]]
+  - [[#xref-backend][xref backend]]
+    - [[#backend-name][backend name]]
+    - [[#identifier-completion-table][identifier-completion-table]]
+    - [[#collect-definitions-in-an-org-file][collect definitions in an org file]]
+    - [[#find-definitions][find definitions]]
+    - [[#utilities][utilities]]
+- [[#python-library-for-a-literate-server][Python library for a literate server]]
+  - [[#idea][Idea]]
+  - [[#prototype][Prototype]]
+  - [[#module-layout-in-an-org-file][Module Layout in an Org file]]
+  - [[#implementation-in-python-side][Implementation in python side]]
+    - [[#__init__][__init__]]
+    - [[#__main__][__main__]]
+    - [[#json][json]]
+    - [[#literate-module-loader][literate module loader]]
+    - [[#web-server][web server]]
+- [[#the-emacs-library][The Emacs library]]
+  - [[#import-required-elisp-libraries][Import required elisp libraries]]
+  - [[#source-code-execution][Source Code Execution]]
+    - [[#customized-variables-for-server-host-and-port][customized variables for server host and port]]
+    - [[#execute-code-in-remote-server][execute code in remote server]]
+    - [[#execute-source-codes-in-specified-module-for-org-babel-python-evaluate][execute source codes in specified module for org-babel-python-evaluate]]
+    - [[#execute-source-code-in-remote-server][execute source code in remote server]]
+    - [[#execute-source-code-in-current-code-block][execute source code in current code block]]
+    - [[#get-top-level-python-code][get top level python code]]
+    - [[#get-the-module-name-for-a-file-name][get the module name for a file name]]
+    - [[#load-python-code-to-current-module][load python code to current module]]
+  - [[#register-python-modules][register python modules]]
+- [[#python-inspector-for-emacs][Python inspector for Emacs]]
+  - [[#package-for-python-inspector][Package for python inspector]]
+  - [[#the-emacs-interface-for-python-inspector][The Emacs interface for python inspector]]
+- [[#sync-between-org-files-and-python-files][Sync between org files and python files]]
+  - [[#introduction-1][Introduction]]
+  - [[#import][Import]]
+    - [[#how][How]]
+    - [[#implementation][Implementation]]
+  - [[#export][Export]]
+- [[#run-python-code-in-specified-module][Run python code in specified module]]
+  - [[#setup-current-module-in-python-repl][setup current module in python REPL]]
+    - [[#a-special-variable-for-current-module-name-in-python-repl][a special variable for current module name in python REPL]]
+    - [[#display-namespace-in-the-mode-line-in-buffer-for-python-repl][display namespace in the mode line in buffer for python REPL]]
+    - [[#a-comint-input-sender-to-exec-code-in-a-namespace][a comint input sender to exec code in a namespace.]]
+  - [[#setup-python-shell-eval-setup-code][setup python shell eval setup code]]
+- [[#tips][Tips]]
+  - [[#how-to-start-django-server-in-repl][how to start django server in REPL]]
+- [[#todo01][TODO]]
+- [[#references][References]]
 
 * Introduction
 I have used an org file to write my document and code for a long time, in various languages.
@@ -266,6 +321,85 @@ def default_json_encoder(obj):
         return str(obj)
 
 #+END_SRC
+*** literate module loader
+:PROPERTIES:
+:LITERATE_PYTHON_MODULE: lpy.loader
+:header-args: :tangle ./lpy/loader.py
+:END:
+**** Import statements
+#+BEGIN_SRC python
+import sys
+import types
+import importlib
+import importlib.abc
+import importlib.machinery
+import logging
+
+#+END_SRC
+**** logger
+#+BEGIN_SRC python
+logger = logging.getLogger(__name__)
+
+#+END_SRC
+**** Initialize in-memory module storage
+#+BEGIN_SRC python
+if "inMemoryModules" not in globals():
+    inMemoryModules = {}
+
+#+END_SRC
+**** find a module
+#+BEGIN_SRC python
+def _get_module_spec(fullname: str) -> bool:
+    return inMemoryModules.get(fullname) or inMemoryModules.get(fullname + ".__init__")
+
+#+END_SRC
+
+**** LiterateImporter
+#+BEGIN_SRC python
+class LiterateImporter(object):
+    def find_module(self, fullname: str, path=None):
+        if _get_module_spec(fullname):
+            logger.debug(f"Found literate module {fullname}")
+            return self
+        else:
+            return None
+
+    def load_module(self, fullname: str):
+        """Create a new module object."""
+        mod_spec = _get_module_spec(fullname)
+        mod = types.ModuleType(fullname)
+        mod.__loader__ = self
+        mod.__file__ = mod_spec.get("filepath", "")
+        # Set module path - get filepath and keep only the path until filename
+        mod.__path__ = ["/".join(mod.__file__.split("/")[:-1]) + "/"]
+        mod.__package__ = fullname
+        sys.modules[fullname] = mod
+        # Execute the module/package code into the Module object
+        logger.debug(f"Load literate module {fullname}")
+        exec(mod_spec["content"], mod.__dict__)
+        return mod
+
+#+END_SRC
+**** Register the Loader with the Import System
+#+BEGIN_SRC python
+class LiterateModuleFinder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if _get_module_spec(fullname):
+            logger.debug(f"Found literate module {fullname}")
+            return importlib.machinery.ModuleSpec(fullname, LiterateImporter())
+        return None
+
+#+END_SRC
+**** a routine register the finder
+#+BEGIN_SRC python
+def register_literate_module_finder():
+    sys.meta_path = [
+        f for f in sys.meta_path if not isinstance(f, LiterateModuleFinder)
+    ]
+    print("Register literate importer.\n")
+    sys.meta_path.append(LiterateModuleFinder())
+
+#+END_SRC
 *** web server
 :PROPERTIES:
 :LITERATE_PYTHON_MODULE: lpy.server
@@ -282,7 +416,6 @@ from flask import Flask, request, jsonify
 
 import traceback
 import builtins
-from IPython.lib import deepreload
 
 # To convert lisp ratio to python
 import fractions
@@ -292,6 +425,8 @@ from io import StringIO
 from io import StringIO
 
 import logging
+
+from loader import register_literate_module_finder
 
 #+END_SRC
 **** Assignment logger
@@ -359,8 +494,6 @@ def process_a_message(message):
                         result = eval(code, dict)
                     elif type == "exec":
                         result = exec(compile(code, "code", "exec"), dict)
-                        # if module is not None:
-                        #     deepreload(module)
                         logger.debug("Executed code: %s,result:%s", code, result)
                     elif type == "status":
                         result = {"alive": True}
@@ -394,6 +527,7 @@ def process_a_message(message):
         return return_value
 
 #+END_SRC
+**** register in memory python modules 
 **** @app.route('/execute', methods=['POST']): Function execute
 #+BEGIN_SRC python
 @app.route('/execute', methods=['POST'])
@@ -419,15 +553,16 @@ def run_server():
         host = os.environ["LITERATE_PYTHON_HOST"]
     if "LITERATE_PYTHON_PORT" in os.environ:
         port = int(os.environ["LITERATE_PYTHON_PORT"])
+    register_literate_module_finder()
     app.run(debug=True, port=port, host=host, use_reloader=False)
 
 #+END_SRC
 
-** The Emacs interface
+* The Emacs library
 :PROPERTIES:
 :literate-lang: elisp
 :END:
-*** Import required elisp libraries
+** Import required elisp libraries
 #+BEGIN_SRC elisp
 (require 'f)
 (require 'files)
@@ -435,23 +570,31 @@ def run_server():
 (require 'lsp);; for `lsp-workspace-root'
 (require 'python-black)
 #+END_SRC
-*** Source Code Execution
-**** customized variables for server host and port
+
+** Source Code Execution
+*** customized variables for server host and port
 #+BEGIN_SRC elisp
 (defcustom literate-python-rest-server "http://localhost:7330/"
   "The server address for literate python server."
   :type 'string
+  :local t
   :group 'literate-python)
 
 #+END_SRC
-**** execute code in remote server
+*** execute code in remote server
 #+BEGIN_SRC elisp
 (defvar literate-python-last-response nil)
 (cl-defun literate-python-request (path &key params data (type "GET"))
   (setf literate-python-last-response nil)
-  (let ((request-backend 'url-retrieve)
-        resp)
-    (request (concat literate-python-rest-server path)
+  (let* ((request-backend 'url-retrieve)
+         (server (or (save-current-buffer
+                       (when-let ((base-buffer (buffer-base-buffer (current-buffer))))
+                        ;; have to switch to org buffer to access property value.
+                        (set-buffer base-buffer))
+                       (org-entry-get (point) "LITERATE_PYTHON_SERVER" t))
+                     literate-python-rest-server))
+         resp)
+    (request (concat server path)
         :params params
         :parser 'json-read
         :type type
@@ -481,7 +624,7 @@ def run_server():
     resp))
 #+END_SRC
 
-**** execute source codes in specified module for org-babel-python-evaluate
+*** execute source codes in specified module for org-babel-python-evaluate
 #+BEGIN_SRC elisp
 (defun literate-python-setup-org-babel ()
   (setf org-babel-python--exec-tmpfile
@@ -489,7 +632,7 @@ def run_server():
 with open('%s') as __org_babel_python_tmpfile:
     exec(compile(__org_babel_python_tmpfile.read(), __org_babel_python_tmpfile.name, 'exec'))"))
 #+END_SRC
-**** execute source code in remote server
+*** execute source code in remote server
 #+BEGIN_SRC elisp
 (cl-defun literate-python-execute-code (code &key (type :exec) (module) (module-create-method "import_or_create"))
   (literate-python-request "execute" :type "POST"
@@ -498,7 +641,7 @@ with open('%s') as __org_babel_python_tmpfile:
                                    (module-create-method . ,module-create-method)
                                    (code . ,code))))
 #+END_SRC
-**** execute source code in current code block
+*** execute source code in current code block
 We have to switch back to org buffer, otherwise =org-babel-execute-src-block-maybe= will report a message and
 override our own compilation report.
 #+BEGIN_SRC elisp
@@ -515,7 +658,7 @@ override our own compilation report.
     (literate-python-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded current code block in module %s" module-name)))
 #+END_SRC
-**** get top level python code
+*** get top level python code
 #+BEGIN_SRC elisp
 (defun literate-python-get-top-level-node-at-point ()
   "Get the current top level node at point, return a cons of start and end position."
@@ -526,7 +669,7 @@ override our own compilation report.
       (setq parent (treesit-node-parent node)))
     node))
 #+END_SRC
-**** get the module name for a file name
+*** get the module name for a file name
 #+BEGIN_SRC elisp
 (cl-defun literate-python-module-name-from-file-name (&optional (file (buffer-file-name)))
   "Get the module name from a file name."
@@ -536,7 +679,7 @@ override our own compilation report.
       (setf relative-name (apply 'f-join (nthcdr 4 (split-string relative-name "/")))))
     (dired-replace-in-string "/" "." relative-name)))
 #+END_SRC
-**** load python code to current module
+*** load python code to current module
 #+BEGIN_SRC elisp
 (defun literate-python-load-code-in-current-namespace ()
   (interactive)
@@ -565,6 +708,7 @@ override our own compilation report.
     (literate-python-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded %s[%s:%s] in module %s" (treesit-node-type node) begin end module-name)))
 #+END_SRC
+** register python modules 
 * Python inspector for Emacs
 ** Package for python inspector
 :PROPERTIES:

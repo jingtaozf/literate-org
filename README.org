@@ -10,6 +10,21 @@
 #+PROPERTY: header-args :results silent :session
 #+PROPERTY: LITERATE_PYTHON_EXPORT_DIRECTORY: ./lpy
 
+* Table of Contents                                            :noexport:TOC:
+- [[#introduction][Introduction]]
+- [[#how][How]]
+  - [[#idea][Idea]]
+  - [[#prototype][Prototype]]
+  - [[#the-layout-of-python-modules-in-one-org-file][The layout of python modules in one org file]]
+- [[#implementation][Implementation]]
+  - [[#import-required-elisp-libraries][Import required elisp libraries]]
+  - [[#source-code-execution][Source Code Execution]]
+    - [[#execute-source-codes-in-specified-module-for-org-babel-python-evaluate][execute source codes in specified module for org-babel-python-evaluate]]
+    - [[#execute-source-codes-in-current-code-block][execute source codes in current code block]]
+  - [[#package-for-customized-org-file-import][Package for customized org-file import]]
+    - [[#import-dependent-packages][import dependent packages]]
+- [[#references][References]]
+
 * Introduction
 I have used org file to write my document and code for a long time, in various languages.
 

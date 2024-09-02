@@ -7,7 +7,6 @@ from flask import Flask, request, jsonify
 
 import traceback
 import builtins
-from IPython.lib import deepreload
 
 # To convert lisp ratio to python
 import fractions
@@ -17,6 +16,8 @@ from io import StringIO
 from io import StringIO
 
 import logging
+
+from lpy.loader import register_literate_module_finder
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +72,6 @@ def process_a_message(message):
                         result = eval(code, dict)
                     elif type == "exec":
                         result = exec(compile(code, "code", "exec"), dict)
-                        # if module is not None:
-                        #     deepreload(module)
                         logger.debug("Executed code: %s,result:%s", code, result)
                     elif type == "status":
                         result = {"alive": True}
@@ -125,4 +124,5 @@ def run_server():
         host = os.environ["LITERATE_PYTHON_HOST"]
     if "LITERATE_PYTHON_PORT" in os.environ:
         port = int(os.environ["LITERATE_PYTHON_PORT"])
+    register_literate_module_finder()
     app.run(debug=True, port=port, host=host, use_reloader=False)
