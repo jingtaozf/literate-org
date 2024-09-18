@@ -7,7 +7,6 @@
 #+PROPERTY: literate-lang python
 #+PROPERTY: literate-load yes
 #+PROPERTY: literate-insert-header no
-#+PROPERTY: LITERATE_PYTHON_SERVER http://localhost:7332/
 #+PROPERTY: header-args :results silent :session :tangle no
 #+PROPERTY: LITERATE_PYTHON_EXPORT_DIRECTORY: ./literate_python
 * Table of Contents                                            :noexport:TOC:
@@ -36,6 +35,7 @@
 - [[#the-emacs-library][The Emacs library]]
   - [[#import-required-elisp-libraries][Import required elisp libraries]]
   - [[#utilities-1][Utilities]]
+    - [[#connect-to-a-literate-server][connect to a literate server]]
     - [[#send-request-to-remote-literate-server][send request to remote literate server]]
   - [[#register-literate-modules][Register literate modules]]
     - [[#register-literate-modules-1][register literate modules]]
@@ -98,14 +98,14 @@ So comes this library to help me import Python modules from org files in Emacs.
          (with-current-buffer (buffer-base-buffer)
            ;; The command `save-buffer` utilizes the base buffer for an indirect buffer.
            (add-hook 'before-save-hook 'literate-python-black-org-code-block -50 t)
-           (add-hook 'after-save-hook 'literate-python-tangle-current-python-file -50 t)
+           (add-hook 'after-save-hook 'literate-python-tangle-current-file -50 t)
            (add-hook 'xref-backend-functions #'literate-python-xref-backend -50 t)))))
     (t
      (when (equal "org" (f-ext (buffer-file-name (current-buffer))))
        (when (buffer-base-buffer)
          (with-current-buffer (buffer-base-buffer)
            (remove-hook 'before-save-hook 'literate-python-black-org-code-block t)
-           (remove-hook 'after-save-hook 'literate-python-tangle-current-python-file t)))
+           (remove-hook 'after-save-hook 'literate-python-tangle-current-file t)))
        (remove-hook 'xref-backend-functions #'literate-python-xref-backend t)))))
 #+END_SRC
 ** black org code block when save
@@ -129,11 +129,10 @@ So comes this library to help me import Python modules from org files in Emacs.
 #+END_SRC
 ** tangle current file when save
 #+BEGIN_SRC elisp
-(defun literate-python-tangle-current-python-file ()
+(defun literate-python-tangle-current-file ()
   (interactive)
   (when-let ((file-name (cdr (assoc :tangle (cl-third (org-babel-get-src-block-info 'light))))))
-   (when (equal "py" (f-ext file-name))
-     (org-babel-tangle '(16) file-name "py"))))
+   (org-babel-tangle '(16) file-name (f-ext file-name))))
 #+END_SRC
 ** xref backend
 *** backend name
@@ -338,6 +337,7 @@ import importlib
 import importlib.abc
 import importlib.machinery
 import logging
+import orgparse
 
 #+END_SRC
 **** logger
@@ -359,7 +359,6 @@ def register_literate_modules(module_spec_list: list) -> None:
         inMemoryModules[module_spec["name"]] = module_spec
 
 #+END_SRC
-
 **** find a module
 #+BEGIN_SRC python
 def _get_module_spec(fullname: str) -> bool:
@@ -403,7 +402,7 @@ class LiterateModuleFinder(importlib.abc.MetaPathFinder):
         return None
 
 #+END_SRC
-**** a routine register the finder
+**** a routine to register the finder
 #+BEGIN_SRC python
 def register_literate_module_finder():
     sys.meta_path = [
@@ -413,6 +412,27 @@ def register_literate_module_finder():
     sys.meta_path.append(LiterateModuleFinder())
 
 #+END_SRC
+**** operations with org files
+***** load python modules from an org file
+#+BEGIN_SRC python
+def load_literate_modules_from_org_file(org_file: str) -> None:
+    org = orgparse.load(org_file)
+
+#+END_SRC
+***** load literate modules form org nodes
+#+BEGIN_SRC python
+def load_literate_modules_from_org_node(node: orgparse.OrgNode) -> None:
+    root_module = LITERATE_PYTHON_ROOT_MODULE
+
+#+END_SRC
+
+***** build an org model compatible string from a local python package
+#+BEGIN_SRC python
+def build_org_model_from_local_python_package(package_path: str) -> str:
+    pass
+
+#+END_SRC
+
 *** web server
 :PROPERTIES:
 :LITERATE_PYTHON_MODULE: lpy.server
@@ -507,10 +527,10 @@ def process_a_message(message):
                     if type == "eval":
                         result = eval(code, dict)
                     elif type == "exec":
-                        result = exec(compile(code, "code", "exec"), dict)
+                        result = exec(
+                            compile(code, module_name or "code", "exec"), dict
+                        )
                         logger.debug("Executed code: %s,result:%s", code, result)
-                    elif type == "status":
-                        result = {"alive": True}
                     elif type == "quit":
                         result = None
                     else:
@@ -544,7 +564,7 @@ def process_a_message(message):
 **** register in memory python modules 
 **** register
 #+BEGIN_SRC python
-def _register(request):
+def register(request):
     # Get JSON data
     data = request.get_json()
 
@@ -566,11 +586,11 @@ def _register(request):
 
 #+END_SRC
 
-**** @app.route('/register, methods=['POST']): register literate modules
+**** @app.route('/lpy/register, methods=['POST']): register literate modules
 #+BEGIN_SRC python
-@app.route("/register", methods=["POST"])
-def register():
-    return _register(request)
+@app.route("/lpy/register", methods=["POST"])
+def register_router():
+    return register(request)
 
 #+END_SRC
 **** execute
@@ -593,11 +613,27 @@ def _execute(request):
 
 **** @app.route('/execute', methods=['POST']): Function execute
 #+BEGIN_SRC python
-@app.route("/execute", methods=["POST"])
+@app.route("/lpy/execute", methods=["POST"])
 def execute():
     return _execute(request)
 
 #+END_SRC
+
+**** status
+#+BEGIN_SRC python
+def _status(request):
+    return jsonify({"status": "ok"})
+
+#+END_SRC
+
+**** status
+#+BEGIN_SRC python
+@app.route("/lpy/status", methods=["GET"])
+def status():
+    return _status(request)
+
+#+END_SRC
+
 **** Function run_web_server
 #+BEGIN_SRC python
 def run_server():
@@ -626,20 +662,25 @@ def run_server():
 #+END_SRC
 
 ** Utilities
+*** connect to a literate server
+#+BEGIN_SRC elisp
+(defun literate-python-connect ()
+  (interactive)
+  (when-let* ((url (read-from-minibuffer "URL: " literate-python-rest-server)))
+    (setf literate-python-rest-server url)
+    (literate-python-request "status" :type "GET")
+    (message "Connected to %s" literate-python-rest-server)))
+#+END_SRC
+
 *** send request to remote literate server
 #+BEGIN_SRC elisp
 (defvar literate-python-last-response nil)
 (cl-defun literate-python-request (path &key params data (type "GET"))
   (setf literate-python-last-response nil)
   (let* ((request-backend 'url-retrieve)
-         (server (or (save-current-buffer
-                       (when-let ((base-buffer (buffer-base-buffer (current-buffer))))
-                        ;; have to switch to org buffer to access property value.
-                        (set-buffer base-buffer))
-                       (org-entry-get (point) "LITERATE_PYTHON_SERVER" t))
-                     literate-python-rest-server))
+         (server literate-python-rest-server)
          resp)
-    (request (concat server path)
+    (request (concat server "lpy/" path)
         :params params
         :parser 'json-read
         :type type
@@ -699,8 +740,9 @@ def run_server():
     (let ((modules-list (cl-loop for key being the hash-keys of modules collect
                                  `((name . ,key)
                                    ("content" . ,(mapconcat 'identity (reverse (gethash key modules)) "\n"))))))
+      ;; TODO: add empty "__init__" module if not exists for a package.
       (literate-python-remote-register-modules modules-list)
-      (message "Registered %s modules." (hash-table-size modules)))))
+      (message "Registered %s modules." (hash-table-count modules)))))
 #+END_SRC
 
 ** Source Code Execution
@@ -709,7 +751,6 @@ def run_server():
 (defcustom literate-python-rest-server "http://localhost:7330/"
   "The server address for literate python server."
   :type 'string
-  :local t
   :group 'literate-python)
 
 #+END_SRC
@@ -1156,7 +1197,7 @@ The comment for a module is usually the first string in the Python file before a
 
 **** iterate a directory to import Python files
 #+BEGIN_SRC elisp
-(cl-defun literate-python-import-python-package (&key (level (or (org-current-level) 0))
+(cl-defun literate-python-import (&key (level (or (org-current-level) 0))
                                                       module-name module-path)
   "Import Python codes from a directory to an org file."
   (interactive "")
@@ -1177,6 +1218,7 @@ The comment for a module is usually the first string in the Python file before a
          (new-level (1+ level)))
     (if (f-directory-p module-path)
       (progn
+        ;; TODO: cleanup empty directories.
         (dolist (file (directory-files module-path t "\.py$"))
           (let* ((relative-name (f-no-ext (f-relative file module-path)))
                  (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
@@ -1188,7 +1230,7 @@ The comment for a module is usually the first string in the Python file before a
             (unless (loop for ignored-name in literate-python-ignored-dirs
                           thereis (search ignored-name new-module-name))
               (literate-python-new-org-section-for-a-module new-module-name new-level :title (or (f-ext relative-name) relative-name))
-              (literate-python-import-python-package :level new-level :module-name new-module-name :module-path directory)))))
+              (literate-python-import :level new-level :module-name new-module-name :module-path directory)))))
       (literate-python-import-python-code-to-org module-path level module-name :with-org-section nil))))
 #+END_SRC
 **** get pieces of code blocks in a python file

@@ -72,10 +72,10 @@ def process_a_message(message):
                     if type == "eval":
                         result = eval(code, dict)
                     elif type == "exec":
-                        result = exec(compile(code, "code", "exec"), dict)
+                        result = exec(
+                            compile(code, module_name or "code", "exec"), dict
+                        )
                         logger.debug("Executed code: %s,result:%s", code, result)
-                    elif type == "status":
-                        result = {"alive": True}
                     elif type == "quit":
                         result = None
                     else:
@@ -105,7 +105,7 @@ def process_a_message(message):
     else:
         return return_value
 
-def _register(request):
+def register(request):
     # Get JSON data
     data = request.get_json()
 
@@ -125,9 +125,9 @@ def _register(request):
     logger.debug("/register Returning:%s", return_value)
     return jsonify(return_value)
 
-@app.route("/register", methods=["POST"])
-def register():
-    return _register(request)
+@app.route("/lpy/register", methods=["POST"])
+def register_router():
+    return register(request)
 
 def _execute(request):
     # Get JSON data
@@ -143,9 +143,16 @@ def _execute(request):
     logger.debug("/execute Returning:%s", return_value)
     return jsonify(return_value)
 
-@app.route("/execute", methods=["POST"])
+@app.route("/lpy/execute", methods=["POST"])
 def execute():
     return _execute(request)
+
+def _status(request):
+    return jsonify({"status": "ok"})
+
+@app.route("/lpy/status", methods=["GET"])
+def status():
+    return _status(request)
 
 def run_server():
     host = "127.0.0.1"

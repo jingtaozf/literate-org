@@ -1518,6 +1518,21 @@ typing-extensions = ">=4.11,<5"
 datalib = ["numpy (>=1)", "pandas (>=1.2.3)", "pandas-stubs (>=1.1.0.11)"]
 
 [[package]]
+name = "orgparse"
+version = "0.4.20231004"
+description = "orgparse - Emacs org-mode parser in Python"
+optional = false
+python-versions = "*"
+files = [
+    {file = "orgparse-0.4.20231004-py3-none-any.whl", hash = "sha256:df9c20978ebc4903e31e35b2c4e5846d1a7974fe7d70531efd44cb45763af340"},
+    {file = "orgparse-0.4.20231004.tar.gz", hash = "sha256:a4e38aeadabf9988b0f67a66acd08279d18220bcbc422a129060c2890bba91a0"},
+]
+
+[package.extras]
+linting = ["lxml", "mypy", "pytest", "ruff"]
+testing = ["pytest"]
+
+[[package]]
 name = "overrides"
 version = "7.7.0"
 description = "A decorator to automatically detect mismatch when overriding a method."
@@ -2769,4 +2784,4 @@ watchdog = ["watchdog (>=2.3)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "f650e8cfc6470c4f549abfbeb6f1cbe321918c777982f21add849e2783f31b43"
+content-hash = "3165219247c2646b55dc959e61629a210b46b719436178e8855e55ef0e93cf7e"

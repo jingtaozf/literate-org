@@ -9,6 +9,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.10"
 flask = "^3.0.3"
+orgparse = "^0.4.20231004"
 
 
 [tool.poetry.group.dev.dependencies]

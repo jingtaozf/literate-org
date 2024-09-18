@@ -4,6 +4,7 @@ import importlib
 import importlib.abc
 import importlib.machinery
 import logging
+import orgparse
 
 logger = logging.getLogger(__name__)
 
@@ -53,3 +54,12 @@ def register_literate_module_finder():
     ]
     print("Register literate importer.\n")
     sys.meta_path.append(LiterateModuleFinder())
+
+def load_literate_modules_from_org_file(org_file: str) -> None:
+    org = orgparse.load(org_file)
+
+def load_literate_modules_from_org_node(node: orgparse.OrgNode) -> None:
+    root_module = LITERATE_PYTHON_ROOT_MODULE
+
+def build_org_model_from_local_python_package(package_path: str) -> str:
+    pass
