@@ -1,3 +1,10 @@
+version:
+	poetry run bumpver update --minor
+build:
+	rm -fr dist/*
+	poetry run python -m build
+publish:
+	poetry run twine upload dist/*
 dev:
 	poetry run marimo edit dev.py
 install-kernel:

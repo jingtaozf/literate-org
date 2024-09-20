@@ -18,7 +18,10 @@ from io import StringIO
 import logging
 
 from textwrap import shorten
-from lpy.loader import register_literate_modules, register_literate_module_finder
+from literate_python.loader import (
+    register_literate_modules,
+    register_literate_module_finder,
+)
 
 logger = logging.getLogger(__name__)
 

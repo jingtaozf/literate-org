@@ -270,23 +270,23 @@ For example
 #+END_EXAMPLE
 ** Implementation in python side
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: lpy
+:LITERATE_PYTHON_MODULE: literate_python
 :LITERATE_PYTHON_ROOT_MODULE_PATH: ./
 :END:
 *** __init__
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: lpy.__init__
-:header-args: :tangle ./lpy/__init__.py
+:LITERATE_PYTHON_MODULE: literate_python.__init__
+:header-args: :tangle ./literate_python/__init__.py
 :END:
 **** Assignment __version__
 #+BEGIN_SRC python
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 #+END_SRC
 *** __main__
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: lpy.__main__
-:header-args: :tangle ./lpy/__main__.py
+:LITERATE_PYTHON_MODULE: literate_python.__main__
+:header-args: :tangle ./literate_python/__main__.py
 :END:
 **** Import statements
 #+BEGIN_SRC python
@@ -300,8 +300,8 @@ run_server()
 #+END_SRC
 *** json
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: lpy.json
-:header-args: :tangle ./lpy/json.py
+:LITERATE_PYTHON_MODULE: literate_python.json
+:header-args: :tangle ./literate_python/json.py
 :END:
 **** Import statements
 #+BEGIN_SRC python
@@ -326,8 +326,8 @@ def default_json_encoder(obj):
 #+END_SRC
 *** literate module loader
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: lpy.loader
-:header-args: :tangle ./lpy/loader.py
+:LITERATE_PYTHON_MODULE: literate_python.loader
+:header-args: :tangle ./literate_python/loader.py
 :END:
 **** Import statements
 #+BEGIN_SRC python
@@ -435,8 +435,8 @@ def build_org_model_from_local_python_package(package_path: str) -> str:
 
 *** web server
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: lpy.server
-:header-args: :tangle ./lpy/server.py
+:LITERATE_PYTHON_MODULE: literate_python.server
+:header-args: :tangle ./literate_python/server.py
 :END:
 **** Import statements
 #+BEGIN_SRC python
@@ -460,7 +460,10 @@ from io import StringIO
 import logging
 
 from textwrap import shorten
-from lpy.loader import register_literate_modules, register_literate_module_finder
+from literate_python.loader import (
+    register_literate_modules,
+    register_literate_module_finder,
+)
 
 #+END_SRC
 **** Assignment logger
