@@ -23,6 +23,8 @@ from literate_python.loader import (
     register_literate_module_finder,
 )
 
+from literate_python.inspector import _pyinspect
+
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
@@ -73,7 +75,9 @@ def process_a_message(message):
 
                 if error is None:
                     if type == "eval":
-                        result = eval(code, dict)
+                        exec(compile(code, module_name or "code", "exec"), dict)
+                        result_name = message.get("result-name", "_")
+                        result = dict.get("_", None)
                     elif type == "exec":
                         result = exec(
                             compile(code, module_name or "code", "exec"), dict
@@ -90,7 +94,7 @@ def process_a_message(message):
                 error = str(e)
     if error is None:
         return_value = {
-            "result": result,
+            "result": _pyinspect(result),
             "type": "result",
             "stdout": stdout_stream.getvalue(),
             "stderr": stderr_stream.getvalue(),

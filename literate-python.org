@@ -51,7 +51,6 @@
   - [[#register-python-modules][register python modules]]
 - [[#python-inspector-for-emacs][Python inspector for Emacs]]
   - [[#package-for-python-inspector][Package for python inspector]]
-  - [[#the-emacs-interface-for-python-inspector][The Emacs interface for python inspector]]
 - [[#sync-between-org-files-and-python-files][Sync between org files and python files]]
   - [[#introduction-1][Introduction]]
   - [[#import][Import]]
@@ -465,6 +464,8 @@ from literate_python.loader import (
     register_literate_module_finder,
 )
 
+from literate_python.inspector import _pyinspect
+
 #+END_SRC
 **** Assignment logger
 #+BEGIN_SRC python
@@ -528,7 +529,9 @@ def process_a_message(message):
 
                 if error is None:
                     if type == "eval":
-                        result = eval(code, dict)
+                        exec(compile(code, module_name or "code", "exec"), dict)
+                        result_name = message.get("result-name", "_")
+                        result = dict.get("_", None)
                     elif type == "exec":
                         result = exec(
                             compile(code, module_name or "code", "exec"), dict
@@ -545,7 +548,7 @@ def process_a_message(message):
                 error = str(e)
     if error is None:
         return_value = {
-            "result": result,
+            "result": _pyinspect(result),
             "type": "result",
             "stdout": stdout_stream.getvalue(),
             "stderr": stderr_stream.getvalue(),
@@ -695,7 +698,8 @@ def run_server():
                      (setf literate-python-last-response response)
                      (case (request-response-status-code response)
                        (200 (setf resp (request-response-data response)))
-                       (500 (user-error "Literate Python server failed:%s" (cdr (assoc 'message (request-response-data response)))))
+
+                       (500 (user-error "Literate Python server failed:%s" response))
                        (t (user-error "Failed to request to remote Python server:%s" response))))))
     (let ((type (cdr (assoc 'type resp))))
       (cond ((equal type "error")
@@ -785,11 +789,22 @@ override our own compilation report.
          (info (org-babel-get-src-block-info))
          (body (nth 1 info))
          (code (plist-get context-info :value))
+         (type (intern (or (org-entry-get (point) "LITERATE_PYTHON_EXECUTE_TYPE" t)
+                           ":exec")))
          (module-create-method (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_CREATE_METHOD" t)
                                    "import_or_create"))
-         (module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)))
-    (literate-python-remote-execute-code code :type :exec :module module-name :module-create-method module-create-method)
-    (message "Loaded current code block in module %s" module-name)))
+         (module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t))
+         (resp (literate-python-remote-execute-code code :type type :module module-name :module-create-method module-create-method)))
+    (with-current-buffer (get-buffer-create "*literate-python-stdout*")
+      (awhen (cdr (assoc 'stdout resp))
+        (goto-char (point-max))
+        (insert "\n" it "\n")))
+    (if (equal type :exec)
+      (message "Executed code block in module %s" module-name)
+      (let ((json-encoding-pretty-print t))
+        (when (not (equal "none" (cdr (assoc :results block-arguments))))
+          (org-babel-insert-result (json-encode (cdr (assoc 'result resp))) '("replace")))
+        (message "Evaluated code block in module %s:\n%s" module-name (cdr (assoc 'result resp)))))))
 #+END_SRC
 *** get top level python code
 #+BEGIN_SRC elisp
@@ -845,20 +860,23 @@ override our own compilation report.
 * Python inspector for Emacs
 ** Package for python inspector
 :PROPERTIES:
-:LITERATE_PYTHON_EXPORT_PACKAGE: pyinspect
-:header-args: :results silent :session :tangle no
+:LITERATE_PYTHON_MODULE: literate_python.inspector
+:header-args: :tangle ./literate_python/inspector.py
 :END:
 **** Import required packages
 #+BEGIN_SRC python
 import json
 from inspect import getmembers, isbuiltin, ismethod
 from typing import Dict
+
 #+END_SRC
 **** Utility functions
 ***** stringify a variable
 #+BEGIN_SRC python
 _PYINSPECT_ITEM_CAP = 5
 _PYINSPECT_STR_CAP = 80
+
+
 def stringify_val(member):
     key, val = member
     if isinstance(val, str):
@@ -866,6 +884,7 @@ def stringify_val(member):
     if type(val) in (dict, tuple, list):
         return key, _pyinspect_trim(val, _PYINSPECT_ITEM_CAP, _PYINSPECT_STR_CAP)
     return key, f"{str(val)} {str(type(val))}"
+
 #+END_SRC
 ***** is trash
 #+BEGIN_SRC python
@@ -877,6 +896,7 @@ def is_trash(member):
         or isbuiltin(val)
         or type(val).__name__ == "method-wrapper"
     )
+
 #+END_SRC
 ***** Turns a non-primitive obj into a dictionary of its fields and their values.
 #+BEGIN_SRC python
@@ -887,6 +907,7 @@ def _pyinspect_inspect_object(obj):
     Doesn't display methods.
     """
     return dict(stringify_val(m) for m in reversed(getmembers(obj)) if not is_trash(m))
+
 #+END_SRC
 ***** Surrounds string key with extra quotes
 #+BEGIN_SRC python
@@ -902,14 +923,16 @@ def _pyinspect_add_quotes(key):
     1
     """
     return '"{}"'.format(key) if type(key) is str else key
+
 #+END_SRC
 ***** trim_seq
 #+BEGIN_SRC python
-def trim_seq(seq):
+def trim_seq(seq, elem_cap):
     if type(seq) is dict:
         return _pyinspect_take_dict(seq, elem_cap)
     elif type(seq) in (tuple, list):
         return seq[:elem_cap]
+
 #+END_SRC
 ***** trim
 #+BEGIN_SRC python
@@ -942,18 +965,20 @@ def _pyinspect_trim(obj, elem_cap, str_cap):
     }
     """
     if type(obj) in (dict, tuple, list):
-        jsondump = json.dumps(trim_seq(obj), indent=4)
+        jsondump = json.dumps(trim_seq(obj, elem_cap), indent=4)
         if len(obj) > elem_cap:
             return f"{jsondump[:-1]}    ...\n{jsondump[-1]}"
         return jsondump
 
     s = str(obj)
     return f"{s[:str_cap]}..." if len(s) > str_cap else s
+
 #+END_SRC
 ***** Returns a new dictionary with the first n pairs from d
 #+BEGIN_SRC python
 def _pyinspect_take_dict(d: Dict, n: int):
     "Returns a new dictionary with the first n pairs from d"
+
     def iterator():
         i = 0
         for item in d.items():
@@ -963,6 +988,7 @@ def _pyinspect_take_dict(d: Dict, n: int):
             i += 1
 
     return dict(iterator())
+
 #+END_SRC
 **** Dispatches the appropriate inspection according to obj type
 #+BEGIN_SRC python
@@ -993,18 +1019,16 @@ def _pyinspect(obj):
 
     else:
         return {"type": "object", "value": _pyinspect_inspect_object(obj)}
+
 #+END_SRC
 **** inspect as json
 #+BEGIN_SRC python
 def _pyinspect_json(obj):
-    print(
-        json.dumps(_pyinspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])
+    return json.dumps(
+        _pyinspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"]
     )
+
 #+END_SRC
-** The Emacs interface for python inspector
-:PROPERTIES:
-:literate-lang: elisp
-:END:
 * Sync between org files and python files
 :PROPERTIES:
 :literate-lang: elisp
