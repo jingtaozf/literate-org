@@ -10,6 +10,7 @@ readme = "README.md"
 python = "^3.10"
 flask = "^3.0.3"
 orgparse = "^0.4.20231004"
+multimethod = "^1.12"
 
 
 [tool.poetry.group.dev.dependencies]

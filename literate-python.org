@@ -29,7 +29,6 @@
   - [[#implementation-in-python-side][Implementation in python side]]
     - [[#__init__][__init__]]
     - [[#__main__][__main__]]
-    - [[#json][json]]
     - [[#literate-module-loader][literate module loader]]
     - [[#web-server][web server]]
 - [[#the-emacs-library][The Emacs library]]
@@ -279,7 +278,7 @@ For example
 :END:
 **** Assignment __version__
 #+BEGIN_SRC python
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 #+END_SRC
 *** __main__
@@ -295,32 +294,6 @@ from .pipe import run_server
 **** Call run_server
 #+BEGIN_SRC python
 run_server()
-
-#+END_SRC
-*** json
-:PROPERTIES:
-:LITERATE_PYTHON_MODULE: literate_python.json
-:header-args: :tangle ./literate_python/json.py
-:END:
-**** Import statements
-#+BEGIN_SRC python
-import calendar, datetime
-
-#+END_SRC
-**** Function default_json_encoder
-#+BEGIN_SRC python
-def default_json_encoder(obj):
-    """Default JSON serializer."""
-    if isinstance(obj, datetime.datetime):
-        if obj.utcoffset() is not None:
-            obj = obj - obj.utcoffset()
-        millis = int(
-            calendar.timegm(obj.timetuple()) * 1000 +
-            obj.microsecond / 1000
-        )
-        return millis
-    else:
-        return str(obj)
 
 #+END_SRC
 *** literate module loader
@@ -464,7 +437,7 @@ from literate_python.loader import (
     register_literate_module_finder,
 )
 
-from literate_python.inspector import _pyinspect
+from literate_python.inspector import _inspect
 
 #+END_SRC
 **** Assignment logger
@@ -548,7 +521,7 @@ def process_a_message(message):
                 error = str(e)
     if error is None:
         return_value = {
-            "result": _pyinspect(result),
+            "result": _inspect(result),
             "type": "result",
             "stdout": stdout_stream.getvalue(),
             "stderr": stderr_stream.getvalue(),
@@ -632,7 +605,7 @@ def _status(request):
 
 #+END_SRC
 
-**** status
+**** status router
 #+BEGIN_SRC python
 @app.route("/lpy/status", methods=["GET"])
 def status():
@@ -683,6 +656,9 @@ def run_server():
 (defvar literate-python-last-response nil)
 (cl-defun literate-python-request (path &key params data (type "GET"))
   (setf literate-python-last-response nil)
+  (awhen (get-buffer "*literate-python-error*")
+    ;; Close the buffer as it will be out of date.
+    (kill-buffer it))
   (let* ((request-backend 'url-retrieve)
          (server literate-python-rest-server)
          resp)
@@ -868,21 +844,19 @@ override our own compilation report.
 import json
 from inspect import getmembers, isbuiltin, ismethod
 from typing import Dict
+from datetime import datetime
+from multimethod import multimethod
 
 #+END_SRC
 **** Utility functions
 ***** stringify a variable
 #+BEGIN_SRC python
-_PYINSPECT_ITEM_CAP = 5
-_PYINSPECT_STR_CAP = 80
-
-
 def stringify_val(member):
     key, val = member
     if isinstance(val, str):
         return key, '"{}"'.format(val)
     if type(val) in (dict, tuple, list):
-        return key, _pyinspect_trim(val, _PYINSPECT_ITEM_CAP, _PYINSPECT_STR_CAP)
+        return key, _inspect(val)
     return key, f"{str(val)} {str(type(val))}"
 
 #+END_SRC
@@ -934,46 +908,6 @@ def trim_seq(seq, elem_cap):
         return seq[:elem_cap]
 
 #+END_SRC
-***** trim
-#+BEGIN_SRC python
-def _pyinspect_trim(obj, elem_cap, str_cap):
-    """
-    If obj is a sequence (dict/list/tuple), takes its first elem_cap elements and drops the rest.
-    Also adds a cute ellipsis before the closing bracket to signal that it has been trimmed.
-    Returns a pretty-printed string of the sequence, formatted by json.dumps with indent=4.
-
-    If it's a string or any other kind of object, coerce it into a string and take the first
-    str_cap characters. AND add a cute ellipsis.
-
-    >>> _pyinspect_trim("abcde", elem_cap=3, str_cap=3)
-    'abc...'
-
-    >>> print(_pyinspect_trim([1, 2, 3, 4], elem_cap=3, str_cap=3))
-    [
-        1,
-        2,
-        3
-        ...
-    ]
-
-    >>> print(_pyinspect_trim({x: x + 1 for x in range(10)}, elem_cap=3, str_cap=3))
-    {
-        "0": 1,
-        "1": 2,
-        "2": 3
-        ...
-    }
-    """
-    if type(obj) in (dict, tuple, list):
-        jsondump = json.dumps(trim_seq(obj, elem_cap), indent=4)
-        if len(obj) > elem_cap:
-            return f"{jsondump[:-1]}    ...\n{jsondump[-1]}"
-        return jsondump
-
-    s = str(obj)
-    return f"{s[:str_cap]}..." if len(s) > str_cap else s
-
-#+END_SRC
 ***** Returns a new dictionary with the first n pairs from d
 #+BEGIN_SRC python
 def _pyinspect_take_dict(d: Dict, n: int):
@@ -991,42 +925,96 @@ def _pyinspect_take_dict(d: Dict, n: int):
 
 #+END_SRC
 **** Dispatches the appropriate inspection according to obj type
+***** generic method
 #+BEGIN_SRC python
-def _pyinspect(obj):
-    "Dispatches the appropriate inspection according to obj type"
-    if type(obj) in (str, bool, int, float, complex):
-        return {"type": "primitive", "value": obj}
-
-    elif type(obj) in (tuple, list):
-        return {
-            "type": "collection",
-            "value": [
-                _pyinspect_trim(item, _PYINSPECT_ITEM_CAP, _PYINSPECT_STR_CAP)
-                for item in obj
-            ],
-        }
-
-    elif type(obj) is dict:
-        return {
-            "type": "dict",
-            "value": {
-                _pyinspect_add_quotes(k): _pyinspect_trim(
-                    v, _PYINSPECT_ITEM_CAP, _PYINSPECT_STR_CAP
-                )
-                for (k, v) in obj.items()
-            },
-        }
-
-    else:
-        return {"type": "object", "value": _pyinspect_inspect_object(obj)}
+@multimethod
+def _inspect(obj) -> dict:
+    return {"type": "object", "value": _pyinspect_inspect_object(obj)}
 
 #+END_SRC
+***** str
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: str) -> dict:
+    return {"type": "string", "value": obj}
+
+#+END_SRC
+***** bool
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: bool) -> dict:
+    return {"type": "bool", "value": obj}
+
+#+END_SRC
+***** int
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: int) -> dict:
+    return {"type": "integer", "value": obj}
+#+END_SRC
+
+***** float
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: float) -> dict:
+    return {"type": "float", "value": obj}
+#+END_SRC
+
+***** complex
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: complex) -> dict:
+    return {"type": "complex", "value": obj}
+#+END_SRC
+***** tuple
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: tuple) -> dict:
+    return {
+        "type": "tuple",
+        "value": [_inspect(item) for item in obj],
+    }
+
+#+END_SRC
+
+***** list
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: list) -> dict:
+    return {
+        "type": "list",
+        "value": [_inspect(item) for item in obj],
+    }
+
+#+END_SRC
+
+***** dict
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: dict) -> dict:
+    return {
+        "type": "dict",
+        "value": {_pyinspect_add_quotes(k): _inspect(v) for (k, v) in obj.items()},
+    }
+
+#+END_SRC
+
+***** datetime
+#+BEGIN_SRC python
+@_inspect.register  # type: ignore
+def _(obj: datetime) -> dict:
+    print(f"obj: {obj}")
+    return {
+        "type": "datetime",
+        "value": obj.isoformat(),
+    }
+
+#+END_SRC
+
 **** inspect as json
 #+BEGIN_SRC python
 def _pyinspect_json(obj):
-    return json.dumps(
-        _pyinspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"]
-    )
+    return json.dumps(_inspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])
 
 #+END_SRC
 * Sync between org files and python files

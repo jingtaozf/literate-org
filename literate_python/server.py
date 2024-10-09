@@ -23,7 +23,7 @@ from literate_python.loader import (
     register_literate_module_finder,
 )
 
-from literate_python.inspector import _pyinspect
+from literate_python.inspector import _inspect
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ def process_a_message(message):
                 error = str(e)
     if error is None:
         return_value = {
-            "result": _pyinspect(result),
+            "result": _inspect(result),
             "type": "result",
             "stdout": stdout_stream.getvalue(),
             "stderr": stderr_stream.getvalue(),
