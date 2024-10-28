@@ -100,7 +100,7 @@ We can organize Python code blocks in org files in the following way:
 :END:
 *** execute source codes in specified module for org-babel-python-evaluate
 #+BEGIN_SRC elisp
-(defun literate-python-setup-org-babel ()
+(defun literate-org-setup-org-babel ()
   (setf org-babel-python--exec-tmpfile
         "\
 with open('%s') as __org_babel_python_tmpfile:
@@ -111,7 +111,7 @@ with open('%s') as __org_babel_python_tmpfile:
 We have to switch back to org buffer, otherwise =org-babel-execute-src-block-maybe= will report a message and
 override our own compilation report.
 #+BEGIN_SRC elisp
-(defun literate-python-execute-current-code-block ()
+(defun literate-org-execute-current-code-block ()
   (interactive)
   (let* ((element (org-element-at-point))
          (info (second element))

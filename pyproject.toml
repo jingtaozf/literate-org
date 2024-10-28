@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "literate-python"
+name = "literate-org"
 version = "0.1.0"
 description = "Develop Python modules in Org files."
 authors = ["Jingtao Xu <jingtaozf@gmail.com>"]
@@ -33,7 +33,7 @@ requires = [
 ]
 build-backend = "setuptools.build_meta"
 [project]
-name = "literate-python"
+name = "literate-org"
 description = "Develop Python modules in Org files."
 dynamic = ["version"]
 # We try to keep dependencies to a minimum, to avoid conflicts with
@@ -61,7 +61,7 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/jingtaozf/literate-python"
+Homepage = "https://github.com/jingtaozf/literate-org"
 
 [tool.bumpver]
 current_version = "2024.1002-alpha"
