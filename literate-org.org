@@ -50,7 +50,7 @@
   - [[#register-python-modules][register python modules]]
 - [[#python-inspector-for-emacs][Python inspector for Emacs]]
   - [[#package-for-python-inspector][Package for python inspector]]
-- [[#sync-between-org-files-and-python-files][Sync between org files and python files]]
+- [[#sync-between-org-files-and-source-files][Sync between org files and source files]]
   - [[#introduction-1][Introduction]]
   - [[#import][Import]]
     - [[#how][How]]
@@ -1017,20 +1017,22 @@ def _pyinspect_json(obj):
     return json.dumps(_inspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])
 
 #+END_SRC
-* Sync between org files and python files
+* Sync between org files and source files
 :PROPERTIES:
 :literate-lang: elisp
 :END:
 ** Introduction
-Even though we can write Python code in org files, we still need to sync them with Python files,
-especially when we want to share the code with others, or import code changes from others.
+Even though we can write code in org files,
+we still need to sync them with source files,
+especially when we want to share the code with others,
+or import code changes from others.
 ** Import
 *** How
-We try to import Python code from Python files to an org file by using Emacs's new library [[https://tree-sitter.github.io/tree-sitter/using-parsers][tree-sitter]].
+We try to import code from source files to an org file
+by using Emacs's new library [[https://tree-sitter.github.io/tree-sitter/using-parsers][tree-sitter]].
 
-We can get the node filed types in [[https://github.com/tree-sitter/tree-sitter-python/blob/master/src/node-types.json][this file]] for Python.
-
-For example, in the following Python code block, we can parse the Python code and get the first function name.
+For example, in the following Python code block,
+we can parse the Python code and get the first function name.
 #+BEGIN_SRC elisp :load no
 (with-temp-buffer
     ;; (insert "def say_hello():\n  print('Hello')\n")
@@ -1067,8 +1069,8 @@ For example, in the following Python code block, we can parse the Python code an
 #+END_SRC
 ***** the parse tree for current file
 #+BEGIN_SRC elisp
-(defun literate-org-parse-tree-for-current-file ()
-  (let ((language (tree-sitter-require 'python))
+(cl-defun literate-org-parse-tree-for-current-file (&key (language 'python))
+  (let ((language (tree-sitter-require language))
         (parser (tsc-make-parser)))
     (tsc-set-language parser language)
     (tsc-parse-string parser (buffer-string))))
@@ -1382,6 +1384,7 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 #+END_SRC
 
 ** Export
+We use native org tangle features.
 * Run python code in specified module
 :PROPERTIES:
 :literate-lang: elisp
