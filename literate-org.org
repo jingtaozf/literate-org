@@ -8,20 +8,19 @@
 #+PROPERTY: literate-load yes
 #+PROPERTY: literate-insert-header no
 #+PROPERTY: header-args :results silent :session :tangle no
-#+PROPERTY: LITERATE_PYTHON_EXPORT_DIRECTORY: ./literate_python
+#+PROPERTY: LITERATE_ORG_EXPORT_DIRECTORY: ./literate_python
 * Table of Contents                                            :noexport:TOC:
 - [[#introduction][Introduction]]
-- [[#a-minor-mode-for-literate-python][A minor mode for literate python]]
+- [[#a-minor-mode-for-literate-org][A minor mode for literate org]]
   - [[#definition][definition]]
-  - [[#black-org-code-block-when-save][black org code block when save]]
-  - [[#black-all-org-code-blocks-in-current-buffer][black all org code blocks in current buffer]]
+  - [[#execute-a-function-in-a-temp-buffer-for-org-code-block][execute a function in a temp buffer for org code block]]
+  - [[#format-org-code-block-when-save][format org code block when save]]
+  - [[#format-all-org-code-blocks-in-current-buffer][format all org code blocks in current buffer]]
   - [[#tangle-current-file-when-save][tangle current file when save]]
   - [[#xref-backend][xref backend]]
     - [[#backend-name][backend name]]
     - [[#identifier-completion-table][identifier-completion-table]]
-    - [[#collect-definitions-in-an-org-file][collect definitions in an org file]]
     - [[#find-definitions][find definitions]]
-    - [[#utilities][utilities]]
 - [[#python-library-for-a-literate-server][Python library for a literate server]]
   - [[#idea][Idea]]
   - [[#prototype][Prototype]]
@@ -31,9 +30,9 @@
     - [[#__main__][__main__]]
     - [[#literate-module-loader][literate module loader]]
     - [[#web-server][web server]]
-- [[#the-emacs-library][The Emacs library]]
+- [[#emacs-library-for-python-literate-server][Emacs library for python literate server]]
   - [[#import-required-elisp-libraries][Import required elisp libraries]]
-  - [[#utilities-1][Utilities]]
+  - [[#utilities][Utilities]]
     - [[#connect-to-a-literate-server][connect to a literate server]]
     - [[#send-request-to-remote-literate-server][send request to remote literate server]]
   - [[#register-literate-modules][Register literate modules]]
@@ -47,7 +46,6 @@
     - [[#get-top-level-python-code][get top level python code]]
     - [[#get-the-module-name-for-a-file-name][get the module name for a file name]]
     - [[#load-python-code-to-current-module][load python code to current module]]
-  - [[#register-python-modules][register python modules]]
 - [[#python-inspector-for-emacs][Python inspector for Emacs]]
   - [[#package-for-python-inspector][Package for python inspector]]
 - [[#sync-between-org-files-and-source-files][Sync between org files and source files]]
@@ -79,7 +77,7 @@ Now I want to use org file to write Python code,
 and I want to import Python modules from an org file for my projects.
 
 So comes this library to help me import Python modules from org files in Emacs.
-* A minor mode for literate python
+* A minor mode for literate org
 :PROPERTIES:
 :literate-lang: elisp
 :header-args: :results silent :session :tangle no
@@ -95,41 +93,76 @@ So comes this library to help me import Python modules from org files in Emacs.
        (when (buffer-base-buffer)
          (with-current-buffer (buffer-base-buffer)
            ;; The command `save-buffer` utilizes the base buffer for an indirect buffer.
-           (add-hook 'before-save-hook 'literate-org-black-org-code-block -50 t)
+           (add-hook 'before-save-hook 'literate-org-format-code-block -50 t)
            (add-hook 'after-save-hook 'literate-org-tangle-current-file -50 t)
            (add-hook 'xref-backend-functions #'literate-org-xref-backend -50 t)))))
     (t
      (when (equal "org" (f-ext (buffer-file-name (current-buffer))))
        (when (buffer-base-buffer)
          (with-current-buffer (buffer-base-buffer)
-           (remove-hook 'before-save-hook 'literate-org-black-org-code-block t)
+           (remove-hook 'before-save-hook 'literate-org-format-code-block t)
            (remove-hook 'after-save-hook 'literate-org-tangle-current-file t)))
        (remove-hook 'xref-backend-functions #'literate-org-xref-backend t)))))
 #+END_SRC
-** black org code block when save
+** execute a function in a temp buffer for org code block
 #+BEGIN_SRC elisp
-(defun literate-org-black-org-code-block ()
+(defun update-org-code-block (update-func language)
+  (save-mark-and-excursion
+    (pcase (org-src--contents-area (org-element-at-point))
+      (`(,beg ,end ,_)
+        (let ((buf (current-buffer))
+              (end (- end 1))
+              (temp-file (format "/tmp/%s.%s" (make-symbol "literate-org")
+                                 (literate-org-file-extension language))))
+          (with-current-buffer (find-file-noselect temp-file)
+            (let ((temp-buf (current-buffer)))
+              (delete-region (point-min) (point-max))
+              (insert-buffer-substring-no-properties buf beg end)
+              (org-unescape-code-in-region (point-min) (point-max))
+              (funcall update-func temp-buf)
+              (org-escape-code-in-region (point-min) (point-max))
+              (with-current-buffer buf
+                (save-restriction
+                  (narrow-to-region beg end)
+                  (replace-buffer-contents temp-buf 0.1))))
+            (let ((kill-buffer-hook nil)
+                  (kill-buffer-query-functions nil))
+              (kill-buffer (current-buffer))))
+          (delete-file temp-file))))))
+#+END_SRC
+
+** format org code block when save
+#+BEGIN_SRC elisp
+(defun literate-org-format-code-block ()
   (when (org-in-block-p '("src")) 
     (let ((language (getf (second (org-element-at-point)) :language)))
-      (when (find language '("python" "ipython") :test #'equalp)
-        (python-black-org-mode-block t)))))
+      (cond ((find language '("python" "ipython") :test #'equalp)
+             (python-black-org-mode-block t))
+            ((find language '("tsx") :test #'equalp)
+             (update-org-code-block
+              #'(lambda (temp-buf)
+                  (prettier-js))
+              (intern language)))))))
 #+END_SRC
-** black all org code blocks in current buffer
+** format all org code blocks in current buffer
 #+BEGIN_SRC elisp
-(defun literate-org-black-org-code-blocks-in-current-buffer ()
+(defun literate-org-format-code-blocks-in-current-buffer ()
   (interactive)
   (save-excursion
     (goto-char (point-min))
-    (while (re-search-forward "#\\+BEGIN_SRC python" nil t)
+    (while (re-search-forward "#\\+BEGIN_SRC" nil t)
       (forward-line 1)
-      (unless (string-prefix-p "#+END_SRC" (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
-        (literate-org-black-org-code-block)))))
+      (unless (string-prefix-p "#+END_SRC"
+                               (buffer-substring-no-properties
+                                (line-beginning-position) (line-end-position)))
+        (literate-org-format-code-block)))))
 #+END_SRC
 ** tangle current file when save
 #+BEGIN_SRC elisp
 (defun literate-org-tangle-current-file ()
   (interactive)
-  (when-let ((file-name (cdr (assoc :tangle (cl-third (org-babel-get-src-block-info 'light))))))
+  (when-let* ((header-args (cl-third (org-babel-get-src-block-info 'light)))
+              (file-name (cdr (assoc :tangle header-args))))
    (org-babel-tangle '(16) file-name (f-ext file-name))))
 #+END_SRC
 ** xref backend
@@ -143,26 +176,6 @@ So comes this library to help me import Python modules from org files in Emacs.
 (cl-defmethod xref-backend-identifier-completion-table ((_backend (eql xref-literate-org)))
   (xref-backend-identifier-completion-table 'xref-lsp))
 #+END_SRC
-*** collect definitions in an org file
-**** a variable to store all definitions
-#+BEGIN_SRC elisp
-(defvar literate-org-org-code-definitions nil)
-#+END_SRC
-**** parse all python code blocks
-#+BEGIN_SRC elisp
-(defun my-parse-python-blocks ()
-    "Parse all Python source blocks in the current Org file and collect definitions."
-    (let (results)
-      (org-element-map (org-element-parse-buffer) 'src-block
-        (lambda (src-block)
-          (when (string= "python" (org-element-property :language src-block))
-            (let* ((code (org-element-property :value src-block))
-                   (tree (tree-sitter-parse-string 'python code))
-                   (root (tree-sitter-root-node tree)))
-              (setq results (append results (my-collect-definitions root code)))))))
-      results))
-#+END_SRC
-
 *** find definitions
 #+BEGIN_SRC elisp
 (cl-defmethod xref-backend-definitions ((_backend (eql xref-literate-org)) identifier)
@@ -174,18 +187,6 @@ So comes this library to help me import Python modules from org files in Emacs.
       (search-backward-regexp "^:header-args: :tangle .*?\\.py")
       (xref-backend-definitions 'xref-lsp identifier))))
 #+END_SRC
-*** utilities
-#+BEGIN_SRC elisp
-(defun literate-org-get-point-in-tangled-file ()
-  (let ((current-point (point)))
-    (save-excursion
-      ;; `save-buffer' will tangle code blocks for current file.
-      (save-buffer)
-      ;; reach to the start of a python file.
-      (search-backward-regexp "^:header-args: :tangle .*?\\.py")
-      (point))))
-#+END_SRC
-
 * Python library for a literate server
 :PROPERTIES:
 :header-args: :results silent :session :tangle no
@@ -239,22 +240,22 @@ It works well.
 We can organize Python code blocks in org files in the following way:
 - The org sections are used to separate different modules.
   - The org sections has the same hierarchy as the Python modules.
-  - The Python module name is defined in the property with name =LITERATE_PYTHON_MODULE= in the section.
+  - The Python module name is defined in the property with name =LITERATE_ORG_MODULE= in the section.
 - The Python code blocks in each section are used to define the functions and classes in the module.
-- A code block is loaded conditionally by the org property =LITERATE_PYTHON_LOAD= or header argument =load=.
+- A code block is loaded conditionally by the org property =LITERATE_ORG_LOAD= or header argument =load=.
     - The property is not set.
     - The property is set to =yes=.
-    - The property is found in the environment =LITERATE_PYTHON_LOAD=.
+    - The property is found in the environment =LITERATE_ORG_LOAD=.
 
 For example      
 #+BEGIN_EXAMPLE
  * Module A
    :PROPERTIES:
-   :LITERATE_PYTHON_MODULE: module_a
+   :LITERATE_ORG_MODULE: module_a
    :END:
   ** Module A.a
    :PROPERTIES:
-   :LITERATE_PYTHON_MODULE: module_a.a
+   :LITERATE_ORG_MODULE: module_a.a
    :END:
   *** a function for module A.a
    ,#+BEGIN_SRC python
@@ -268,12 +269,12 @@ For example
 #+END_EXAMPLE
 ** Implementation in python side
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: literate_python
-:LITERATE_PYTHON_ROOT_MODULE_PATH: ./
+:LITERATE_ORG_MODULE: literate_python
+:LITERATE_ORG_ROOT_MODULE_PATH: ./
 :END:
 *** __init__
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: literate_python.__init__
+:LITERATE_ORG_MODULE: literate_python.__init__
 :header-args: :tangle ./literate_python/__init__.py
 :END:
 **** Assignment __version__
@@ -283,7 +284,7 @@ __version__ = "0.0.4"
 #+END_SRC
 *** __main__
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: literate_python.__main__
+:LITERATE_ORG_MODULE: literate_python.__main__
 :header-args: :tangle ./literate_python/__main__.py
 :END:
 **** Import statements
@@ -298,7 +299,7 @@ run_server()
 #+END_SRC
 *** literate module loader
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: literate_python.loader
+:LITERATE_ORG_MODULE: literate_python.loader
 :header-args: :tangle ./literate_python/loader.py
 :END:
 **** Import statements
@@ -394,7 +395,7 @@ def load_literate_modules_from_org_file(org_file: str) -> None:
 ***** load literate modules form org nodes
 #+BEGIN_SRC python
 def load_literate_modules_from_org_node(node: orgparse.OrgNode) -> None:
-    root_module = LITERATE_PYTHON_ROOT_MODULE
+    root_module = LITERATE_ORG_ROOT_MODULE
 
 #+END_SRC
 
@@ -407,7 +408,7 @@ def build_org_model_from_local_python_package(package_path: str) -> str:
 
 *** web server
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: literate_python.server
+:LITERATE_ORG_MODULE: literate_python.server
 :header-args: :tangle ./literate_python/server.py
 :END:
 **** Import statements
@@ -618,16 +619,16 @@ def status():
 def run_server():
     host = "127.0.0.1"
     port = 7330
-    if "LITERATE_PYTHON_HOST" in os.environ:
-        host = os.environ["LITERATE_PYTHON_HOST"]
-    if "LITERATE_PYTHON_PORT" in os.environ:
-        port = int(os.environ["LITERATE_PYTHON_PORT"])
+    if "LITERATE_ORG_HOST" in os.environ:
+        host = os.environ["LITERATE_ORG_HOST"]
+    if "LITERATE_ORG_PORT" in os.environ:
+        port = int(os.environ["LITERATE_ORG_PORT"])
     register_literate_module_finder()
     app.run(debug=True, port=port, host=host, use_reloader=False)
 
 #+END_SRC
 
-* The Emacs library
+* Emacs library for python literate server
 :PROPERTIES:
 :literate-lang: elisp
 :END:
@@ -654,6 +655,7 @@ def run_server():
 *** send request to remote literate server
 #+BEGIN_SRC elisp
 (defvar literate-org-last-response nil)
+
 (cl-defun literate-org-request (path &key params data (type "GET"))
   (setf literate-org-last-response nil)
   (awhen (get-buffer "*literate-org-error*")
@@ -717,7 +719,7 @@ def run_server():
     (goto-char begin)
     (while (search-forward "#+BEGIN_SRC python" end t)
       (let* ((context-info (second (org-element-context)))
-             (module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t))
+             (module-name (org-entry-get (point) "LITERATE_ORG_MODULE" t))
              (code (plist-get context-info :value)))
         (push code (gethash module-name modules nil))))
     (let ((modules-list (cl-loop for key being the hash-keys of modules collect
@@ -765,11 +767,11 @@ override our own compilation report.
          (info (org-babel-get-src-block-info))
          (body (nth 1 info))
          (code (plist-get context-info :value))
-         (type (intern (or (org-entry-get (point) "LITERATE_PYTHON_EXECUTE_TYPE" t)
+         (type (intern (or (org-entry-get (point) "LITERATE_ORG_EXECUTE_TYPE" t)
                            ":exec")))
-         (module-create-method (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_CREATE_METHOD" t)
+         (module-create-method (or (org-entry-get (point) "LITERATE_ORG_MODULE_CREATE_METHOD" t)
                                    "import_or_create"))
-         (module-name (org-entry-get (point) "LITERATE_PYTHON_MODULE" t))
+         (module-name (org-entry-get (point) "LITERATE_ORG_MODULE" t))
          (resp (literate-org-remote-execute-code code :type type :module module-name :module-create-method module-create-method)))
     (with-current-buffer (get-buffer-create "*literate-org-stdout*")
       (awhen (cdr (assoc 'stdout resp))
@@ -814,9 +816,9 @@ override our own compilation report.
          (file (buffer-file-name))
          (org-babel-p (equalp "org" (f-ext file)))
          (module-name (if org-babel-p
-                        (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)
+                        (org-entry-get (point) "LITERATE_ORG_MODULE" t)
                         (literate-org-module-name-from-file-name file)))
-         (module-create-method (or (org-entry-get (point) "LITERATE_PYTHON_MODULE_CREATE_METHOD" t)
+         (module-create-method (or (org-entry-get (point) "LITERATE_ORG_MODULE_CREATE_METHOD" t)
                                    "import_or_create")))
     ;; To Fix module name with syntax `...literate-org.literate_python.module_a'
     (let ((prefix-dot-count 0))
@@ -832,11 +834,10 @@ override our own compilation report.
     (literate-org-remote-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded %s[%s:%s] in module %s" (treesit-node-type node) begin end module-name)))
 #+END_SRC
-** register python modules 
 * Python inspector for Emacs
 ** Package for python inspector
 :PROPERTIES:
-:LITERATE_PYTHON_MODULE: literate_python.inspector
+:LITERATE_ORG_MODULE: literate_python.inspector
 :header-args: :tangle ./literate_python/inspector.py
 :END:
 **** Import required packages
@@ -1060,16 +1061,17 @@ we can parse the Python code and get the first function name.
 (require 'f); for file operations
 #+END_SRC
 **** Utilities
-***** how to prepare a new org section for a Python module
+***** how to prepare a new org section for a module
 #+BEGIN_SRC elisp
 (cl-defun literate-org-new-org-section-for-a-module (module-name new-level &key (title module-name))
   (loop repeat new-level do (insert "*"))
   (insert " " title "\n")
-  (org-entry-put (point) "LITERATE_PYTHON_MODULE" module-name))
+  (org-entry-put (point) "LITERATE_ORG_MODULE" module-name))
 #+END_SRC
 ***** the parse tree for current file
 #+BEGIN_SRC elisp
-(cl-defun literate-org-parse-tree-for-current-file (&key (language 'python))
+(cl-defun literate-org-parse-tree-for-current-file
+    (&key (language (treesit-parser-language (car (treesit-parser-list)))))
   (let ((language (tree-sitter-require language))
         (parser (tsc-make-parser)))
     (tsc-set-language parser language)
@@ -1077,9 +1079,15 @@ we can parse the Python code and get the first function name.
 #+END_SRC
 
 ***** get the comment for a module
+****** generic method
+#+BEGIN_SRC elisp
+(cl-defgeneric literate-org-module-comment (language node)
+  (:documentation "Get the module comment."))
+#+END_SRC
+****** python
 The comment for a module is usually the first string in the Python file before any meaning code.
 #+BEGIN_SRC elisp
-(defun literate-org-module-comment-from-node (node)
+(cl-defmethod literate-org-module-comment ((language (eql python)) node)
   (when (eq 'module (tsc-node-type node)) 
     (let* ((index 0)
                 (child (tsc-get-nth-child node index)))
@@ -1093,28 +1101,70 @@ The comment for a module is usually the first string in the Python file before a
         (when (eq 'string (tsc-node-type child))
           (tsc-node-text (tsc-get-nth-child child 1)))))))
 #+END_SRC
+****** tsx
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-module-comment ((language (eql tsx)) node)
+  nil)
+#+END_SRC
+
+**** generic methods
+#+BEGIN_SRC elisp
+(cl-defgeneric literate-org-node-name (language node-type node)
+  (:documentation "Get the name of a node."))
+(cl-defgeneric literate-org-next-code-block-index (language root start-index)
+  (:documentation "Get the next code block index."))
+
+(cl-defgeneric literate-org-file-extension (language)
+  (:documentation "the file extension for a language."))
+
+(cl-defgeneric literate-org-babel-name (language)
+  (:documentation "the source code block name for a language."))
+#+END_SRC
+**** babel block name
+***** the default implementation
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-babel-name (language)
+  (symbol-name language))
+#+END_SRC
+
+**** file extensions for a language
+***** python
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-file-extension ((language (eql python)))
+  "py")
+#+END_SRC
+
+***** tsx
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-file-extension ((language (eql tsx)))
+  "tsx")
+#+END_SRC
 
 **** How to get the name of a parse node
-***** generic function
+***** the default implementation
 #+BEGIN_SRC elisp
-(cl-defgeneric literate-org-node-name (node-type node)
-  (:documentation "Get the name of a node."))
+(cl-defmethod literate-org-node-name (language node-type node)
+  (format "%s" node-type))
 #+END_SRC
-***** function definition
+***** python
+****** function definition
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql function_definition)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql function_definition)) node)
   (format "Function %s" (tsc-node-text (tsc-get-child-by-field node :name))))
 #+END_SRC
 
-***** class_definition
+****** class_definition
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql class_definition)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql class_definition)) node)
   (format "Class %s" (tsc-node-text (tsc-get-child-by-field node :name))))
 #+END_SRC
 
-***** decorated_definition
+****** decorated_definition
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql decorated_definition)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql decorated_definition)) node)
   (let* ((name-list nil)
          (index 0)
          (child (tsc-get-nth-child node index)))
@@ -1123,85 +1173,181 @@ The comment for a module is usually the first string in the Python file before a
       (incf index)
       (setf child (tsc-get-nth-child node index)))
     (format "@%s: %s" (mapconcat 'identity name-list " ")
-            (literate-org-node-name (tsc-node-type child) child))))
+            (literate-org-node-name language (tsc-node-type child) child))))
 #+END_SRC
-***** assignment
+****** assignment
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql assignment)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql assignment)) node)
   (let ((code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length code) literate-org-max-title-size)
       (format "Assignment %s" code)
       (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))))
 #+END_SRC
 
-***** augmented_assignment
+****** augmented_assignment
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql augmented_assignment)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql augmented_assignment)) node)
   (let ((code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length code) literate-org-max-title-size)
       (format "Assignment %s" code)
       (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))))
 #+END_SRC
-***** call
+****** call
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql call)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql call)) node)
   (let ((call-code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length call-code) literate-org-max-title-size)
       (format "Call %s" call-code)
       (format "Call %s" (tsc-node-text (tsc-get-child-by-field node :function))))))
 #+END_SRC
 
-***** try
+****** try
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql try_statement)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql try_statement)) node)
   "Try statement")
 #+END_SRC
 
-***** while
+****** while
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql while_statement)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql while_statement)) node)
   "While statement")
 #+END_SRC
 
-***** the default implementation
+****** string
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name (node-type node)
-  (format "%s" node-type))
-#+END_SRC
-***** string
-#+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql string)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql string)) node)
   "String")
 #+END_SRC
 
-***** comment
+****** comment
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql comment)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql comment)) node)
   "Comment")
 #+END_SRC
 
-***** import
+****** import
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql import)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql import)) node)
   "Import")
 #+END_SRC
-***** import_from_statement
+****** import_from_statement
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql import_from_statement)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql import_from_statement)) node)
   "Import")
 #+END_SRC
 
-***** expression
+****** expression
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-node-name ((node-type (eql expression_statement)) node)
+(cl-defmethod literate-org-node-name ((language (eql python))
+                                      (node-type (eql expression_statement)) node)
   (let ((new-node (tsc-get-nth-child node 0)))
-    (literate-org-node-name (ts-node-type new-node) new-node)))
+    (literate-org-node-name language (ts-node-type new-node) new-node)))
 #+END_SRC
+
+***** tsx
+****** function definition
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql function_declaration)) node)
+  (format "Function %s" (tsc-node-text (tsc-get-child-by-field node :name))))
+#+END_SRC
+
+****** string
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql string)) node)
+  "String")
+#+END_SRC
+
+****** comment
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql comment)) node)
+  "Comment")
+#+END_SRC
+
+****** import
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql import)) node)
+  "Import")
+#+END_SRC
+****** export
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql export_statement)) node)
+  (format "Export %s"
+          (let ((declaration (tsc-get-child-by-field node :declaration)))
+            (if declaration
+              (literate-org-node-name language (tsc-node-type declaration) declaration)
+              (let ((value (tsc-get-child-by-field node :value)))
+                (if value
+                  (tsc-node-text value)))))))
+#+END_SRC
+****** type_alias_declaration
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql type_alias_declaration)) node)
+  (format "Type %s" (tsc-node-text (tsc-get-child-by-field node :name))))
+#+END_SRC
+
+
+****** enum_declaration
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql enum_declaration)) node)
+  (format "Enum %s" (tsc-node-text (tsc-get-child-by-field node :name))))
+#+END_SRC
+
+****** interface_declaration
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql interface_declaration)) node)
+  (format "Interface %s" (tsc-node-text (tsc-get-child-by-field node :name))))
+#+END_SRC
+
+****** lexical
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql lexical_declaration)) node)
+  (format "%s %s"
+          (tsc-node-text (tsc-get-child-by-field node :kind))
+          (let ((sub-node (tsc-get-nth-child node 1)))
+            (literate-org-node-name language
+                                    (tsc-node-type sub-node)
+                                    sub-node))))
+#+END_SRC
+
+****** variable_declarator
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql variable_declarator)) node)
+  (format "Variable %s"
+          (tsc-node-text (tsc-get-child-by-field node :name))))
+#+END_SRC
+
+****** expression
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql tsx))
+                                      (node-type (eql expression_statement)) node)
+  (let ((new-node (tsc-get-nth-child node 0)))
+    (literate-org-node-name language (ts-node-type new-node) new-node)))
+#+END_SRC
+
 
 **** ignored directories
 #+BEGIN_SRC elisp
 (defcustom literate-org-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea")
-  "The directories to be ignored when importing Python packages."
+  "The directories to be ignored when importing source files."
   :group 'literate-org)
 #+END_SRC
 
@@ -1211,62 +1357,80 @@ The comment for a module is usually the first string in the Python file before a
   "The maximum size of a title for an org section."
   :group 'literate-org)
 #+END_SRC
-
-**** iterate a directory to import Python files
+**** iterate a directory to import source files
 #+BEGIN_SRC elisp
 (cl-defun literate-org-import (&key (level (or (org-current-level) 0))
-                                                      module-name module-path)
-  "Import Python codes from a directory to an org file."
+                                    module-name module-path)
+  "Import source codes from a directory to an org file."
   (interactive "")
   (let* ((module-name (or module-name
-                          (or (org-entry-get (point) "LITERATE_PYTHON_MODULE" t)
-                              (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t))))
+                          (or (org-entry-get (point) "LITERATE_ORG_MODULE" t)
+                              (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE" t))))
+         (language (or (aand (org-entry-get (point) "LITERATE_ORG_LANGUAGE" t)
+                             (intern it))
+                       (intern (read-from-minibuffer "Which language: "))))
+         (path-extension (literate-org-file-extension language))
+         (path-ext-regx (concat "\." path-extension "$"))
          (module-path (or module-path
-                          (let* ((root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
+                          (let* ((root-path (org-entry-get
+                                             (point) "LITERATE_ORG_ROOT_MODULE_PATH" t))
                                  (path (when root-path
-                                         (concat root-path "/" (dired-replace-in-string "\\." "/" module-name)))))
+                                         (concat root-path "/"
+                                                 (dired-replace-in-string
+                                                  "\\." "/" module-name)))))
                             (when path
                               (if (f-directory? path)
                                 path
-                                (let ((path (concat path ".py")))
-                                  (if (f-exists-p path)
+                                (let ((path (concat path "." path-extension)))
+                                  (when (f-exists-p path)
                                     path)))))
-                          (org-entry-get (point) "LITERATE_PYTHON_MODULE_PATH" t)))
+                          (org-entry-get (point) "LITERATE_ORG_MODULE_PATH" t)))
          (new-level (1+ level)))
     (if (f-directory-p module-path)
       (progn
         ;; TODO: cleanup empty directories.
-        (dolist (file (directory-files module-path t "\.py$"))
+        (dolist (file (directory-files module-path t path-ext-regx))
           (let* ((relative-name (f-no-ext (f-relative file module-path)))
-                 (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
-            (literate-org-import-python-code-to-org file new-level new-module-name)))
+                 (new-module-name (format "%s.%s" module-name
+                                          (dired-replace-in-string
+                                           "/" "." relative-name))))
+            (literate-org-import-source-file-to-org
+             language file new-level new-module-name)))
 
         (dolist (directory (f-directories module-path))
           (let* ((relative-name (f-no-ext (f-relative directory module-path)))
-                 (new-module-name (format "%s.%s" module-name (dired-replace-in-string "/" "." relative-name))))
+                 (new-module-name (format "%s.%s" module-name
+                                          (dired-replace-in-string
+                                           "/" "." relative-name))))
             (unless (loop for ignored-name in literate-org-ignored-dirs
                           thereis (search ignored-name new-module-name))
-              (literate-org-new-org-section-for-a-module new-module-name new-level :title (or (f-ext relative-name) relative-name))
-              (literate-org-import :level new-level :module-name new-module-name :module-path directory)))))
-      (literate-org-import-python-code-to-org module-path level module-name :with-org-section nil))))
+              (literate-org-new-org-section-for-a-module
+               new-module-name new-level
+               :title (or (f-ext relative-name) relative-name))
+              (literate-org-import :level new-level
+                                   :module-name new-module-name
+                                   :module-path directory)))))
+      (literate-org-import-source-file-to-org
+       language module-path level module-name :with-org-section nil))))
 #+END_SRC
 **** get pieces of code blocks in a python file
 To investigate the parse tree, we can use Emacs command [[https://github.com/emacs-mirror/emacs/blob/master/admin/notes/tree-sitter/starter-guide#query-references][treesit-explore-mode]]
 #+BEGIN_SRC elisp
-(defun literate-org-get-code-blocks-in-file (file)
+(cl-defun literate-org-get-code-blocks-in-file
+    (file &key (language (treesit-parser-language (car (treesit-parser-list)))))
   (with-current-buffer (find-file-noselect file)
-    (let* ((tree (literate-org-parse-tree-for-current-file))
+    (let* ((tree (literate-org-parse-tree-for-current-file :language language))
            (root (tsc-root-node tree))
            (count-of-children (tsc-count-children root))
            (module-comment (when (> count-of-children 0)
-                             (literate-org-module-comment-from-node root)))
+                             (literate-org-module-comment language root)))
            (current-index 0)
            (next-index 0)
            (next-title nil)
            (code-blocks nil))
       (while (< current-index count-of-children)
         (cl-multiple-value-setq (next-index next-title)
-          (literate-org-next-code-block-index root current-index))
+          (literate-org-next-code-block-index language root current-index))
         (setf code-blocks
                 (nconc code-blocks
                        (list (cons (dired-replace-in-string "\n" " " next-title)
@@ -1279,112 +1443,210 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 
 **** import a python file
 #+BEGIN_SRC elisp
-(defcustom literate-org-org-babel-lang "python" "The org-babel language for literate python."
-  :group 'literate-org)
-
-(cl-defun literate-org-import-python-code-to-org (file level module-name &key (with-org-section t))
+(cl-defun literate-org-import-source-file-to-org
+    (language file level module-name &key (with-org-section t))
   (let* ((new-level (1+ level))
-           (code-blocks-info (literate-org-get-code-blocks-in-file file))
+         (code-blocks-info (literate-org-get-code-blocks-in-file
+                            file :language language))
          (module-comment (car code-blocks-info))
          (module-title (when module-comment
                         (first (split-string module-comment "\n" t nil))))
          (code-blocks (cdr code-blocks-info)))
     (when with-org-section
       (literate-org-new-org-section-for-a-module module-name level :title (or module-title (f-ext module-name) module-name))
-      (let* ((module-root-path (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE_PATH" t))
-             (root-module (org-entry-get (point) "LITERATE_PYTHON_ROOT_MODULE" t))
-             (module-file-name (dired-replace-in-string "\\." "/" (if root-module
-                                                                    (subseq module-name (length root-module))
-                                                                    module-name))))
+      (let* ((module-root-path (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE_PATH" t))
+             (root-module (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE" t))
+             (module-file-name (dired-replace-in-string
+                                "\\." "/"
+                                (if (> (length root-module) 0)
+                                  (subseq module-name (length root-module))
+                                  module-name))))
         (when (and (> (length module-root-path) 0)
                    (not (string-suffix-p "/" module-root-path)))
           (setf module-root-path (concat module-root-path "/")))
-        (org-entry-put (point) "header-args" (format ":tangle %s%s.py" module-root-path module-file-name))))
+        (org-entry-put (point) "header-args"
+                       (format ":tangle %s%s.%s"
+                               module-root-path
+                               module-file-name
+                               (literate-org-file-extension language)))))
 
     (loop for (title . code) in code-blocks do
       (loop repeat new-level do (insert "*"))
       (insert " " title "\n")
-      (insert "#+BEGIN_SRC " literate-org-org-babel-lang "\n")
+      (insert "#+BEGIN_SRC " (literate-org-babel-name language) "\n")
       (insert code)
       (insert "\n#+END_SRC\n"))))
 #+END_SRC
 **** get the next code block index
+***** python
 #+BEGIN_SRC elisp
-(cl-defun literate-org-next-code-block-index (root start-index)
-  (let* ((max-index (1- (tsc-count-children root)))
-         (current-index start-index)
-         (current-node nil)
-         (current-node-type nil)
-         (next-index nil)
-         (next-node-type nil)
-         (next-node nil)
-         (next-title nil)
-         (collected-valid-node-types nil)
-         (previous-node nil)
-         (previous-node-type nil))
-    (while (<= current-index max-index)
-      (setf previous-node current-node)
-      (setf previous-node-type current-node-type)
-      (setf current-node (ts-get-nth-child root current-index))
-      (setf current-node-type (ts-node-type current-node))
-      (unless (eq 'comment current-node-type)
-        (push current-node-type collected-valid-node-types))
+(cl-defmethod literate-org-next-code-block-index ((language (eql python))
+                                                  root start-index)
+  (cl-block nil
+    (let* ((max-index (1- (tsc-count-children root)))
+           (current-index start-index)
+           (current-node nil)
+           (current-node-type nil)
+           (next-index nil)
+           (next-node-type nil)
+           (next-node nil)
+           (next-title nil)
+           (collected-valid-node-types nil)
+           (previous-node nil)
+           (previous-node-type nil))
+      (while (<= current-index max-index)
+        (setf previous-node current-node)
+        (setf previous-node-type current-node-type)
+        (setf current-node (ts-get-nth-child root current-index))
+        (setf current-node-type (ts-node-type current-node))
+        (unless (eq 'comment current-node-type)
+          (push current-node-type collected-valid-node-types))
 
-      (when (= current-index max-index)
-        (return-from literate-org-next-code-block-index (values max-index (literate-org-node-name current-node-type current-node))))
-      (setf next-index (1+ current-index)
-            next-node (ts-get-nth-child root next-index)
-            next-node-type (ts-node-type next-node))
-      (cl-case current-node-type 
-        (comment 
-         (if (and previous-node-type
-                  (not (find previous-node-type '(comment)) )
-                  (find (first collected-valid-node-types) '(import_statement import_from_statement))
-                  (not (find next-node-type '(import_statement import_from_statement comment))))
-           (return-from literate-org-next-code-block-index (values (1- current-index) (literate-org-node-name previous-node-type previous-node)))
-           (incf current-index)))
-        ((import_statement import_from_statement)
-         (cond ((find next-node-type '(import_statement import_from_statement comment))
-                (incf current-index))
+        (when (= current-index max-index)
+          (return (values max-index
+                          (literate-org-node-name
+                           language current-node-type current-node))))
+        (setf next-index (1+ current-index)
+              next-node (ts-get-nth-child root next-index)
+              next-node-type (ts-node-type next-node))
+        (cl-case current-node-type 
+          (comment 
+           (if (and previous-node-type
+                    (not (find previous-node-type '(comment)) )
+                    (find (first collected-valid-node-types) '(import_statement import_from_statement))
+                    (not (find next-node-type '(import_statement import_from_statement comment))))
+             (return (values (1- current-index)
+                             (literate-org-node-name
+                              language previous-node-type previous-node)))
+             (incf current-index)))
+          ((import_statement import_from_statement)
+           (cond ((find next-node-type '(import_statement import_from_statement comment))
+                  (incf current-index))
+                 (t
+                  (return (values current-index "Import statements")))))
+          (decorated_definition
+           (return (values current-index
+                           (literate-org-node-name
+                            language current-node-type current-node))))
+          (class_definition
+           (return (values current-index
+                           (literate-org-node-name
+                            language current-node-type current-node))))
+          (function_definition
+           (return (values current-index
+                           (literate-org-node-name
+                            language current-node-type current-node))))
+          (expression_statement
+           (let* ((first-child-node (ts-get-nth-child current-node 0))
+                  (first-child-node-type (ts-node-type first-child-node)))
+             (cl-case first-child-node-type
+               (comment
+                (incf next-index)
+                (setf next-node (ts-get-nth-child root next-index))
+                (setf next-node-type (ts-node-type next-node)))
+               (string
+                (return (values current-index "Docstring")))
+               (assignment
+                ;; if there is a docstring for this assignment, continue to next index
+                (if (and (eq 'expression_statement next-node-type)
+                         (eq 'string (ts-node-type (ts-get-nth-child next-node 0))))
+                  (incf current-index)
+                  (return (values current-index
+                                  (literate-org-node-name
+                                   language first-child-node-type first-child-node)))))
                (t
-                (return-from literate-org-next-code-block-index (values current-index "Import statements")))))
-        (decorated_definition
-         (return-from literate-org-next-code-block-index
-           (values current-index (literate-org-node-name current-node-type current-node))))
-        (class_definition
-         (return-from literate-org-next-code-block-index
-           (values current-index (literate-org-node-name current-node-type current-node))))
-        (function_definition
-         (return-from literate-org-next-code-block-index
-           (values current-index (literate-org-node-name current-node-type current-node))))
-        (expression_statement
-         (let* ((first-child-node (ts-get-nth-child current-node 0))
-                (first-child-node-type (ts-node-type first-child-node)))
-           (cl-case first-child-node-type
-             (comment
-              (incf next-index)
-              (setf next-node (ts-get-nth-child root next-index))
-              (setf next-node-type (ts-node-type next-node)))
-             (string
-              (return-from literate-org-next-code-block-index (values current-index "Docstring")))
-             (assignment
-              ;; if there is a docstring for this assignment, continue to next index
-              (if (and (eq 'expression_statement next-node-type)
-                       (eq 'string (ts-node-type (ts-get-nth-child next-node 0))))
-                (incf current-index)
-                (return-from literate-org-next-code-block-index
-                  (values current-index
-                          (literate-org-node-name first-child-node-type first-child-node)))))
-             (t
-              (return-from literate-org-next-code-block-index
-                (values current-index
-                        (literate-org-node-name first-child-node-type first-child-node)))))))
-        (t
-         (incf current-index))))))
+                (return (values current-index
+                                (literate-org-node-name
+                                 language first-child-node-type first-child-node)))))))
+          (t
+           (incf current-index)))))))
+#+END_SRC
+***** tsx
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-next-code-block-index ((language (eql tsx))
+                                                  root start-index)
+  (cl-block nil
+    (let* ((max-index (1- (tsc-count-children root)))
+           (current-index start-index)
+           (current-node nil)
+           (current-node-type nil)
+           (next-index nil)
+           (next-node-type nil)
+           (next-node nil)
+           (next-title nil)
+           (collected-valid-node-types nil)
+           (previous-node nil)
+           (previous-node-type nil))
+      (while (<= current-index max-index)
+        (setf previous-node current-node)
+        (setf previous-node-type current-node-type)
+        (setf current-node (ts-get-nth-child root current-index))
+        (setf current-node-type (ts-node-type current-node))
+        (unless (eq 'comment current-node-type)
+          (push current-node-type collected-valid-node-types))
+
+        (when (= current-index max-index)
+          (return (values max-index
+                          (literate-org-node-name
+                           language current-node-type current-node))))
+        (setf next-index (1+ current-index)
+              next-node (ts-get-nth-child root next-index)
+              next-node-type (ts-node-type next-node))
+        (case current-node-type 
+          (comment 
+           (if (and previous-node-type
+                    (not (find previous-node-type '(comment)) )
+                    (find (first collected-valid-node-types)
+                          '(import_statement))
+                    (not (find next-node-type
+                               '(import_statement comment))))
+             (return (values (1- current-index)
+                             (literate-org-node-name
+                              language previous-node-type previous-node)))
+             (incf current-index)))
+          (import_statement
+           (cond ((find next-node-type
+                        '(import_statement comment))
+                  (incf current-index))
+                 (t
+                  (return (values current-index "Import statements")))))
+          ((export_statement enum_declaration interface_declaration
+                             type_alias_declaration
+                             lexical_declaration
+                             variable_declarator
+                             function_declaration)
+           (return (values current-index
+                           (literate-org-node-name
+                            language current-node-type current-node))))
+          (expression_statement
+           (let* ((first-child-node (ts-get-nth-child current-node 0))
+                  (first-child-node-type (ts-node-type first-child-node)))
+             (cl-case first-child-node-type
+               (comment
+                (incf next-index)
+                (setf next-node (ts-get-nth-child root next-index))
+                (setf next-node-type (ts-node-type next-node)))
+               (string
+                (return (values current-index "Docstring")))
+               (assignment
+                ;; if there is a docstring for this assignment, continue to next index
+                (if (and (eq 'expression_statement next-node-type)
+                         (eq 'string (ts-node-type (ts-get-nth-child next-node 0))))
+                  (incf current-index)
+                  (return (values current-index
+                                  (literate-org-node-name
+                                   language first-child-node-type first-child-node)))))
+               (t
+                (return (values current-index
+                                (literate-org-node-name
+                                 language first-child-node-type first-child-node)))))))
+          (t
+           (incf current-index)))))))
 #+END_SRC
 
 ** Export
 We use native org tangle features.
+
 * Run python code in specified module
 :PROPERTIES:
 :literate-lang: elisp
