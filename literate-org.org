@@ -35,9 +35,6 @@
   - [[#utilities][Utilities]]
     - [[#connect-to-a-literate-server][connect to a literate server]]
     - [[#send-request-to-remote-literate-server][send request to remote literate server]]
-  - [[#register-literate-modules][Register literate modules]]
-    - [[#register-literate-modules-1][register literate modules]]
-    - [[#register-modules-for-code-blocks-under-current-point][register modules for code blocks under current point]]
   - [[#source-code-execution][Source Code Execution]]
     - [[#customized-variables-for-server-host-and-port][customized variables for server host and port]]
     - [[#execute-source-codes-in-specified-module-for-org-babel-python-evaluate][execute source codes in specified module for org-babel-python-evaluate]]
@@ -47,7 +44,10 @@
     - [[#get-the-module-name-for-a-file-name][get the module name for a file name]]
     - [[#load-python-code-to-current-module][load python code to current module]]
 - [[#python-inspector-for-emacs][Python inspector for Emacs]]
-  - [[#package-for-python-inspector][Package for python inspector]]
+    - [[#import-required-packages][Import required packages]]
+    - [[#utility-functions][Utility functions]]
+    - [[#dispatches-the-appropriate-inspection-according-to-obj-type][Dispatches the appropriate inspection according to obj type]]
+    - [[#inspect-as-json][inspect as json]]
 - [[#sync-between-org-files-and-source-files][Sync between org files and source files]]
   - [[#introduction-1][Introduction]]
   - [[#import][Import]]
@@ -89,7 +89,8 @@ So comes this library to help me import Python modules from org files in Emacs.
   :lighter nil
   (cond
     (literate-org-mode
-     (when (equal "org" (f-ext (buffer-file-name (current-buffer))))
+     (when (aand (buffer-file-name (current-buffer))
+                 (equal "org" (f-ext it)))
        (when (buffer-base-buffer)
          (with-current-buffer (buffer-base-buffer)
            ;; The command `save-buffer` utilizes the base buffer for an indirect buffer.
@@ -702,40 +703,6 @@ def run_server():
 #+END_SRC
 
 
-** Register literate modules
-*** register literate modules
-#+BEGIN_SRC elisp
-(defun literate-org-remote-register-modules (modules)
-  (literate-org-request "register" :type "POST"
-                           :data modules))
-#+END_SRC
-*** register modules for code blocks under current point
-#+BEGIN_SRC elisp
-(defun literate-org-register-modules ()
-  (interactive)
-  (let* ((element (org-element-at-point))
-         (info (second element))
-         (begin (plist-get info :begin))
-         (end (plist-get info :end))
-         (modules (make-hash-table :test 'equal)))
-    (if current-prefix-arg
-      (setf end (point-max))
-      (unless (eq 'headline (first element))
-        (user-error "Please move point to a headline.")))
-    (goto-char begin)
-    (while (search-forward "#+BEGIN_SRC python" end t)
-      (let* ((context-info (second (org-element-context)))
-             (module-name (org-entry-get (point) "LITERATE_ORG_MODULE" t))
-             (code (plist-get context-info :value)))
-        (push code (gethash module-name modules nil))))
-    (let ((modules-list (cl-loop for key being the hash-keys of modules collect
-                                 `((name . ,key)
-                                   ("content" . ,(mapconcat 'identity (reverse (gethash key modules)) "\n"))))))
-      ;; TODO: add empty "__init__" module if not exists for a package.
-      (literate-org-remote-register-modules modules-list)
-      (message "Registered %s modules." (hash-table-count modules)))))
-#+END_SRC
-
 ** Source Code Execution
 *** customized variables for server host and port
 #+BEGIN_SRC elisp
@@ -841,12 +808,11 @@ override our own compilation report.
     (message "Loaded %s[%s:%s] in module %s" (treesit-node-type node) begin end module-name)))
 #+END_SRC
 * Python inspector for Emacs
-** Package for python inspector
 :PROPERTIES:
 :LITERATE_ORG_MODULE: literate_python.inspector
 :header-args: :tangle ./literate_python/inspector.py
 :END:
-**** Import required packages
+*** Import required packages
 #+BEGIN_SRC python
 import json
 from inspect import getmembers, isbuiltin, ismethod
@@ -855,8 +821,8 @@ from datetime import datetime
 from multimethod import multimethod
 
 #+END_SRC
-**** Utility functions
-***** stringify a variable
+*** Utility functions
+**** stringify a variable
 #+BEGIN_SRC python
 def stringify_val(member):
     key, val = member
@@ -867,7 +833,7 @@ def stringify_val(member):
     return key, f"{str(val)} {str(type(val))}"
 
 #+END_SRC
-***** is trash
+**** is trash
 #+BEGIN_SRC python
 def is_trash(member):
     key, val = member
@@ -879,7 +845,7 @@ def is_trash(member):
     )
 
 #+END_SRC
-***** Turns a non-primitive obj into a dictionary of its fields and their values.
+**** Turns a non-primitive obj into a dictionary of its fields and their values.
 #+BEGIN_SRC python
 def _pyinspect_inspect_object(obj):
     """
@@ -890,7 +856,7 @@ def _pyinspect_inspect_object(obj):
     return dict(stringify_val(m) for m in reversed(getmembers(obj)) if not is_trash(m))
 
 #+END_SRC
-***** Surrounds string key with extra quotes
+**** Surrounds string key with extra quotes
 #+BEGIN_SRC python
 def _pyinspect_add_quotes(key):
     """
@@ -906,7 +872,7 @@ def _pyinspect_add_quotes(key):
     return '"{}"'.format(key) if type(key) is str else key
 
 #+END_SRC
-***** trim_seq
+**** trim_seq
 #+BEGIN_SRC python
 def trim_seq(seq, elem_cap):
     if type(seq) is dict:
@@ -915,7 +881,7 @@ def trim_seq(seq, elem_cap):
         return seq[:elem_cap]
 
 #+END_SRC
-***** Returns a new dictionary with the first n pairs from d
+**** Returns a new dictionary with the first n pairs from d
 #+BEGIN_SRC python
 def _pyinspect_take_dict(d: Dict, n: int):
     "Returns a new dictionary with the first n pairs from d"
@@ -931,49 +897,49 @@ def _pyinspect_take_dict(d: Dict, n: int):
     return dict(iterator())
 
 #+END_SRC
-**** Dispatches the appropriate inspection according to obj type
-***** generic method
+*** Dispatches the appropriate inspection according to obj type
+**** generic method
 #+BEGIN_SRC python
 @multimethod
 def _inspect(obj) -> dict:
     return {"type": "object", "value": _pyinspect_inspect_object(obj)}
 
 #+END_SRC
-***** str
+**** str
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: str) -> dict:
     return {"type": "string", "value": obj}
 
 #+END_SRC
-***** bool
+**** bool
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: bool) -> dict:
     return {"type": "bool", "value": obj}
 
 #+END_SRC
-***** int
+**** int
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: int) -> dict:
     return {"type": "integer", "value": obj}
 #+END_SRC
 
-***** float
+**** float
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: float) -> dict:
     return {"type": "float", "value": obj}
 #+END_SRC
 
-***** complex
+**** complex
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: complex) -> dict:
     return {"type": "complex", "value": obj}
 #+END_SRC
-***** tuple
+**** tuple
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: tuple) -> dict:
@@ -984,7 +950,7 @@ def _(obj: tuple) -> dict:
 
 #+END_SRC
 
-***** list
+**** list
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: list) -> dict:
@@ -995,7 +961,7 @@ def _(obj: list) -> dict:
 
 #+END_SRC
 
-***** dict
+**** dict
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: dict) -> dict:
@@ -1006,7 +972,7 @@ def _(obj: dict) -> dict:
 
 #+END_SRC
 
-***** datetime
+**** datetime
 #+BEGIN_SRC python
 @_inspect.register  # type: ignore
 def _(obj: datetime) -> dict:
@@ -1018,7 +984,7 @@ def _(obj: datetime) -> dict:
 
 #+END_SRC
 
-**** inspect as json
+*** inspect as json
 #+BEGIN_SRC python
 def _pyinspect_json(obj):
     return json.dumps(_inspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])
@@ -1419,7 +1385,7 @@ The comment for a module is usually the first string in the Python file before a
       (literate-org-import-source-file-to-org
        language module-path level module-name :with-org-section nil))))
 #+END_SRC
-**** get pieces of code blocks in a python file
+**** get pieces of code blocks in a source file
 To investigate the parse tree, we can use Emacs command [[https://github.com/emacs-mirror/emacs/blob/master/admin/notes/tree-sitter/starter-guide#query-references][treesit-explore-mode]]
 #+BEGIN_SRC elisp
 (cl-defun literate-org-get-code-blocks-in-file
@@ -1447,7 +1413,7 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
       (cons module-comment code-blocks))))
 #+END_SRC
 
-**** import a python file
+**** import a source file
 #+BEGIN_SRC elisp
 (cl-defun literate-org-import-source-file-to-org
     (language file level module-name &key (with-org-section t))
