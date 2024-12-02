@@ -169,7 +169,8 @@ So comes this library to help me import Python modules from org files in Emacs.
   (interactive)
   (when-let* ((header-args (cl-third (org-babel-get-src-block-info 'light)))
               (file-name (cdr (assoc :tangle header-args))))
-   (org-babel-tangle '(16) file-name (f-ext file-name))))
+   (org-babel-tangle '(16) file-name (f-ext file-name))
+   (run-hook-with-args 'literate-org-after-tangle-current-file file-name)))
 #+END_SRC
 ** xref backend
 *** backend name
@@ -1444,7 +1445,7 @@ The comment for a module is usually the first string in the Python file before a
              (car languages)
              (completing-read "Which language: " languages)))
          (path-extension (literate-org-file-extension language))
-         (path (concat path "." path-extension)))
+         (path (concat module-path "." path-extension)))
     (when (f-exists-p path)
       (literate-org-import-source-file-to-org
        language path level module-name :with-org-section nil))))
