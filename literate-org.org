@@ -1483,7 +1483,7 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 #+BEGIN_SRC elisp
 (cl-defun literate-org-import-source-file-to-org
     (language file level module-name &key (with-org-section t))
-  (message "literate importing %s" file)
+  (message "literate importing module %s from file file %s" module-name file)
   (let* ((new-level (1+ level))
          (code-blocks-info (literate-org-get-code-blocks-in-file
                             file :language language))
@@ -1494,20 +1494,12 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
     (when with-org-section
       (literate-org-new-org-section-for-a-module module-name level :title (or module-title (f-ext module-name) module-name))
       (let* ((module-root-path (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE_PATH" t))
-             (root-module (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE" t))
-             (module-file-name (dired-replace-in-string
-                                "\\." "/"
-                                (if (> (length root-module) 0)
-                                  (subseq module-name (length root-module))
-                                  module-name))))
+             (root-module (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE" t)))
         (when (and (> (length module-root-path) 0)
                    (not (string-suffix-p "/" module-root-path)))
           (setf module-root-path (concat module-root-path "/")))
         (org-entry-put (point) "header-args"
-                       (format ":tangle %s%s.%s"
-                               module-root-path
-                               module-file-name
-                               (literate-org-file-extension language)))))
+                       (format ":tangle %s" file))))
 
     (loop for (title . code) in code-blocks do
       (loop repeat new-level do (insert "*"))
