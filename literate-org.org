@@ -59,6 +59,10 @@
     - [[#display-namespace-in-the-mode-line-in-buffer-for-python-repl][display namespace in the mode line in buffer for python REPL]]
     - [[#a-comint-input-sender-to-exec-code-in-a-namespace][a comint input sender to exec code in a namespace.]]
   - [[#setup-python-shell-eval-setup-code][setup python shell eval setup code]]
+- [[#utilities-1][Utilities]]
+  - [[#import-from-jupyter-notebook][import from jupyter notebook]]
+    - [[#convert-markdown-to-org-syntax][convert markdown to org syntax]]
+    - [[#parse-a-notebook-file][parse a notebook file]]
 - [[#tips][Tips]]
   - [[#how-to-start-django-server-in-repl][how to start django server in REPL]]
 - [[#todo01][TODO]]
@@ -1758,6 +1762,96 @@ def __PYTHON_EL_eval(source, filename, module=None):
         sys.excepthook(t, v, tb.tb_next)")
   )
 #+END_SRC
+* Utilities
+** import from jupyter notebook 
+:PROPERTIES:
+:literate-lang: elisp
+:END:
+*** convert markdown to org syntax
+**** lua filter to remove PROPERTIES
+#+BEGIN_SRC elisp
+(defvar literate-org-lua-filter-remove-properties
+    "
+function Div(elem)
+  -- Check if the Div is an Org PROPERTIES drawer
+  if elem.classes:includes(\"PROPERTIES\") then
+    -- Remove the entire PROPERTIES block by returning nothing
+    return {}
+  end
+end
+"
+  "A lua filter to remove PROPERTIES drawer.")
+#+END_SRC
+
+**** main
+#+BEGIN_SRC elisp
+(defun literate-org-markdown-to-org (str)
+  (let* ((lua-filter-file (make-temp-file "literate-org-md-to-org" nil ".lua"))
+         (src-file (make-temp-file "literate-org-md-to-org" nil ".md"))
+         (dest-file (format "%s.org" src-file)))
+    (with-temp-file lua-filter-file
+      (insert literate-org-lua-filter-remove-properties))
+    (with-temp-file src-file
+      (insert str))
+    (shell-command (format "pandoc -f markdown -t org --lua-filter=\"%s\" -o \"%s\" \"%s\""
+                           lua-filter-file dest-file src-file))
+    (unwind-protect
+        (with-temp-buffer
+          (insert-file-contents dest-file)
+          (buffer-string))
+      (delete-file lua-filter-file)
+      (delete-file src-file)
+      (delete-file dest-file))))
+#+END_SRC
+
+**** Only tangling code definitions 
+#+BEGIN_SRC elisp
+(defvar literate-org-ipynb-tangled-prefix-patterns
+    '("Function " "Class " "Import" "@"))
+
+#+END_SRC
+
+*** parse a notebook file
+#+BEGIN_SRC elisp
+(defun literate-org-import-ipynb-file (file)
+  (interactive "f")
+  (let* ((data (json-read-file file))
+         (cells (coerce (cdr (assoc 'cells data)) 'list))
+         (current-org-level 0))
+    (dolist (cell cells)
+      (let ((cell-type (cdr (assoc 'cell_type cell)))
+            (source (string-join (coerce (cdr (assoc 'source cell)) 'list))))
+        (cond ((string= cell-type "code")
+               (if (string-prefix-p "!" source) 
+                 (progn
+                   (loop repeat (1+ current-org-level) do (insert "*"))
+                   (insert " A shell command" "\n")
+                   (insert "#+BEGIN_SRC " "sh" "\n")
+                   (insert (subseq source 1))
+                   (insert "\n#+END_SRC\n"))
+                 (let ((src-file (make-temp-file "literate-org-ipynb-code" nil ".py"))
+                       (language 'python))
+                   (with-temp-file src-file
+                     (insert source))
+                   (let ((code-blocks
+                          (cdr
+                           (literate-org-get-code-blocks-in-file
+                            src-file :language language))))
+                     (delete-file src-file)
+                     (loop for (title . code) in code-blocks do
+                       (loop repeat (1+ current-org-level) do (insert "*"))
+                       (insert " " title "\n")
+                       (insert "#+BEGIN_SRC " (literate-org-babel-name language))
+                       (if (loop for prefix in literate-org-ipynb-tangled-prefix-patterns
+                                 never (string-prefix-p prefix title))
+                         (insert " :tangle no"))
+                       (insert "\n" code)
+                       (insert "\n#+END_SRC\n"))))))
+              ((string= cell-type "markdown")
+               (insert (literate-org-markdown-to-org source) "\n")
+               (setf current-org-level (org-current-level))))))))
+#+END_SRC
+
 * Tips
 :PROPERTIES:
 :header-args: :tangle no
