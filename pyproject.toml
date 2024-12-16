@@ -1,70 +1,60 @@
+[tool.poetry]
+name = "literate_python"
+version = "0.0.4"
+description = "Develop Python modules in Org files."
+authors = ["Jingtao Xu <jingtaozf@gmail.com>"]
+license = "MIT"
+readme = "README.org"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+flask = "^3.0.3"
+orgparse = "^0.4.20231004"
+multimethod = "^1.12"
+
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.8.0"
+flake8 = "^7.1.1"
+marimo = "^0.8.7"
+openai = "^1.43.0"
+ipykernel = "^6.29.5"
+ipython = "^8.27.0"
+jupyterlab = "^4.2.5"
+bumpver = "^2023.1129"
+build = "^1.2.2"
+twine = "^5.1.1"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
 [project]
 name = "literate_python"
 description = "Develop Python modules in Org files."
 dynamic = ["version"]
-readme = "README.md"
-requires-python = ">=3.8"
-license = "MIT"
-keywords = []
-authors = [
-  { name = "Jingtao Xu", email = "jingtao@mind.ai" },
-]
-classifiers = [
-  "Development Status :: 4 - Beta",
-  "Programming Language :: Python",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: Implementation :: CPython",
-  "Programming Language :: Python :: Implementation :: PyPy",
-]
 # We try to keep dependencies to a minimum, to avoid conflicts with
 # user environments;we need a very compelling reason for each dependency added.
 # Dependencies should have lower bounds, which should be as loose as possible.
 dependencies = [
     "flask",
     "orgparse",
-    "multimethod",
+    # for packaging.version; not sure what the lower bound is.
+    "packaging",
+]
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+classifiers = [
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3 :: Only",
 ]
 
 [project.urls]
-Documentation = "https://github.com/jingtaozf/literate-org#readme"
-Issues = "https://github.com/jingtaozfliterate-org/issues"
-Source = "https://github.com/jingtaozfliterate-org"
-
-[tool.hatch.version]
-path = "literate_python/__about__.py"
-
-[tool.hatch.envs.types]
-extra-dependencies = [
-  "mypy>=1.0.0",
-]
-[tool.hatch.envs.types.scripts]
-check = "mypy --install-types --non-interactive {args:literate_python}"
-
-[tool.coverage.run]
-source_pkgs = ["literate_python"]
-branch = true
-parallel = true
-omit = [
-  "literate_python/__about__.py",
-]
-
-[tool.coverage.paths]
-literate_python = ["literate_python", "*/literate_python"]
-tests = ["tests", "*/literate_python/tests"]
-
-[tool.coverage.report]
-exclude_lines = [
-  "no cov",
-  "if __name__ == .__main__.:",
-  "if TYPE_CHECKING:",
-]
-
+Homepage = "https://github.com/jingtaozf/literate-org"

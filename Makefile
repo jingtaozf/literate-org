@@ -1,6 +1,7 @@
 build:
-	hatch build
+	poetry build
 publish:
-	hatch publish
+	# poetry config pypi-token.pypi <your-api-token>
+	poetry publish --build 
 dev:
-	hatch run marimo edit dev.py
+	poetry run marimo edit dev.py
