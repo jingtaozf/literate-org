@@ -252,14 +252,14 @@ move point to the target position.
   (interactive)
   (multiple-value-bind (tangled-file-name tangled-point)
       (literate-org-visit-point-at-tangled-position)
-    (with-current-buffer (find-file-noselect tangled-file-name)
-      (goto-char tangled-point)
-      (let ((loc (lsp-request "textDocument/definition"
-                              (lsp--text-document-position-params))))
-        (if (seq-empty-p loc)
-          (lsp--error "Not found for: %s" (or (thing-at-point 'symbol t) ""))
-          (let ((xref-show-definitions-function 'literate-org-xref-show-definitions-buffer))
-            (lsp-show-xrefs (lsp--locations-to-xref-items loc) nil nil)))))))
+    (let ((loc
+           (with-current-buffer (find-file-noselect tangled-file-name)
+             (goto-char tangled-point)
+             (lsp-request "textDocument/definition" (lsp--text-document-position-params)))))
+      (if (seq-empty-p loc)
+        (lsp--error "Not found for: %s" (or (thing-at-point 'symbol t) ""))
+        (let ((xref-show-definitions-function 'literate-org-xref-show-definitions-buffer))
+          (lsp-show-xrefs (lsp--locations-to-xref-items loc) nil nil))))))
 #+END_SRC
 * Python library for a literate server
 :PROPERTIES:
