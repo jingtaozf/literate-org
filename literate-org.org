@@ -11,14 +11,16 @@
 * Table of Contents                                            :noexport:TOC:
 - [[#introduction][Introduction]]
 - [[#a-minor-mode-for-literate-org][A minor mode for literate org]]
+  - [[#keymap][keymap]]
   - [[#definition][definition]]
+  - [[#enable-literate-org-mode-in-org-file][enable literate org mode in org file]]
   - [[#execute-a-function-in-a-temp-buffer-for-org-code-block][execute a function in a temp buffer for org code block]]
   - [[#format-org-code-block-when-save][format org code block when save]]
   - [[#format-all-org-code-blocks-in-current-buffer][format all org code blocks in current buffer]]
   - [[#tangle-current-file-when-save][tangle current file when save]]
   - [[#xref-backend][xref backend]]
-    - [[#backend-name][backend name]]
-    - [[#identifier-completion-table][identifier-completion-table]]
+    - [[#visit-a-point-in-a-code-block-in-the-tangled-file][visit a point in a code block in the tangled file]]
+    - [[#show-xrefs-in-org-file-if-possible][show xrefs in org file if possible]]
     - [[#find-definitions][find definitions]]
 - [[#python-library-for-a-literate-server][Python library for a literate server]]
   - [[#idea][Idea]]
@@ -85,6 +87,12 @@ So comes this library to help me import Python modules from org files in Emacs.
 :literate-lang: elisp
 :header-args: :results silent :session :tangle no
 :END:
+** keymap
+#+BEGIN_SRC elisp
+(defvar literate-org-mode-map (make-sparse-keymap)
+  "Keymap for `literate-org-mode`.")
+#+END_SRC
+
 ** definition
 #+BEGIN_SRC elisp
 (define-minor-mode literate-org-mode
@@ -108,6 +116,14 @@ So comes this library to help me import Python modules from org files in Emacs.
            (remove-hook 'after-save-hook 'literate-org-tangle-current-file t)))
        (remove-hook 'xref-backend-functions #'literate-org-xref-backend t)))))
 #+END_SRC
+** enable literate org mode in org file
+#+BEGIN_SRC elisp
+(defun literate-org-mode-in-org-file ()
+  (when (aand (buffer-file-name (current-buffer))
+                 (equal "org" (f-ext it)))
+    (literate-org-mode 1)))
+#+END_SRC
+
 ** execute a function in a temp buffer for org code block
 #+BEGIN_SRC elisp
 (defun update-org-code-block (update-func language file-name)
@@ -177,26 +193,73 @@ So comes this library to help me import Python modules from org files in Emacs.
    (run-hook-with-args 'literate-org-after-tangle-current-file file-name)))
 #+END_SRC
 ** xref backend
-*** backend name
+*** visit a point in a code block in the tangled file
 #+BEGIN_SRC elisp
-(defun literate-org-xref-backend ()
-  'xref-literate-org)
+(defun literate-org-visit-point-at-tangled-position ()
+  (when-let* ((header-args (cl-third (org-babel-get-src-block-info 'light)))
+              (file-name (cdr (assoc :tangle header-args))))
+    (when (file-exists-p file-name)
+      (let* ((column-index (- (point) (line-beginning-position)))
+             (last-code-block-line-no (save-excursion
+                                        (search-backward-regexp "^#\\+BEGIN_SRC" nil t)
+                                        (line-number-at-pos)))
+             (line-index (- (line-number-at-pos)
+                            last-code-block-line-no
+                            1))
+             ;; for each code block before the current code block for the same tangled file, count lines of each code block
+             (lines-of-before-code-blocks nil))
+        (save-excursion
+          (search-backward (format ":header-args: :tangle %s" file-name) nil)
+          (search-forward "#+BEGIN_SRC" nil)
+          (let ((begin-line-no (line-number-at-pos)))
+            (while (< begin-line-no last-code-block-line-no)
+              (setf begin-line-no (line-number-at-pos))
+              (search-forward "#+END_SRC" nil)
+              (push (- (line-number-at-pos) begin-line-no 1)
+                    lines-of-before-code-blocks)
+              (search-forward "#+BEGIN_SRC" nil)
+              (setf begin-line-no (line-number-at-pos)))))
+        (setf lines-of-before-code-blocks (reverse lines-of-before-code-blocks))
+        (with-current-buffer (find-file-noselect file-name)
+          (goto-char (point-min))
+          (while lines-of-before-code-blocks
+            (forward-line (pop lines-of-before-code-blocks))
+            (while (and (not (eobp))
+                        (save-excursion
+                          (beginning-of-line)
+                          (looking-at-p "^\\s-*$")))
+              (forward-line 1)))
+          (forward-line line-index)
+          (goto-char (line-beginning-position))
+          (forward-char column-index)
+          (values file-name (point)))))))
 #+END_SRC
-*** identifier-completion-table
+
+
+*** show xrefs in org file if possible
 #+BEGIN_SRC elisp
-(cl-defmethod xref-backend-identifier-completion-table ((_backend (eql xref-literate-org)))
-  (xref-backend-identifier-completion-table 'xref-lsp))
+(defun literate-org-xref-show-definitions-buffer (fetcher alist)
+  (let ((xrefs (funcall fetcher)))
+    (xref-show-definitions-buffer fetcher alist)))
 #+END_SRC
+
 *** find definitions
+We try to open the tangled file, and move cursor to the same point as it is in the code block,
+then use lsp mode to find the definition, if the target position can be found in the current org file, we'll
+move point to the target position.
 #+BEGIN_SRC elisp
-(cl-defmethod xref-backend-definitions ((_backend (eql xref-literate-org)) identifier)
-  (let ((current-point (point)))
-    (save-excursion
-      ;; `save-buffer' will tangle code blocks for current file.
-      (save-buffer)
-      ;; reach to the start of a python file.
-      (search-backward-regexp "^:header-args: :tangle .*?\\.py")
-      (xref-backend-definitions 'xref-lsp identifier))))
+(defun literate-org-find-dwim ()
+  (interactive)
+  (multiple-value-bind (tangled-file-name tangled-point)
+      (literate-org-visit-point-at-tangled-position)
+    (with-current-buffer (find-file-noselect tangled-file-name)
+      (goto-char tangled-point)
+      (let ((loc (lsp-request "textDocument/definition"
+                              (lsp--text-document-position-params))))
+        (if (seq-empty-p loc)
+          (lsp--error "Not found for: %s" (or (thing-at-point 'symbol t) ""))
+          (let ((xref-show-definitions-function 'literate-org-xref-show-definitions-buffer))
+            (lsp-show-xrefs (lsp--locations-to-xref-items loc) nil nil)))))))
 #+END_SRC
 * Python library for a literate server
 :PROPERTIES:
