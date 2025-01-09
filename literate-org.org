@@ -133,11 +133,13 @@ So comes this library to help me import Python modules from org files in Emacs.
         (let ((buf (current-buffer))
               (end (- end 1))
               (temp-file (format "%s/%s.%s"
-                                 (or (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE_PATH" t)
-                                     (f-dirname file-name))
+                                 (if (string= "file-name" "no")
+                                   (or (aand (org-entry-get (point) "LITERATE_SOURCE_FILE" t)
+                                             (f-dirname it))
+                                       (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE_PATH" t))
+                                   (f-dirname file-name))
                                  (make-symbol "literate-org")
                                  (literate-org-file-extension language))))
-          (message "temp-file:%s" temp-file)
           (with-current-buffer (find-file-noselect temp-file)
             (let ((temp-buf (current-buffer)))
               (delete-region (point-min) (point-max))
@@ -171,7 +173,8 @@ So comes this library to help me import Python modules from org files in Emacs.
                 #'(lambda (temp-buf temp-file)
                     (prettier-prettify))
                 (intern language)
-                file-name)))))))
+                file-name)))
+            ((null language) (error "Unsupported language %s" language))))))
 #+END_SRC
 ** format all org code blocks in current buffer
 #+BEGIN_SRC elisp
@@ -1703,9 +1706,10 @@ The comment for a module is usually the first string in the Python file before a
 #+BEGIN_SRC elisp
 (cl-defmethod literate-org-properties-for-a-module ((language (eql vue)) module-name path)
   (list (cons "LITERATE_ORG_MODULE" module-name)
+        (cons "LITERATE_SOURCE_FILE" path)
         (cons "header-args" (format ":noweb yes :tangle %s" path))
         (cons "header-args:tsx" (format ":noweb yes :noweb-ref %s-script :tangle no" module-name))
-        (cons "header-args:html" (format ":noweb yes :noweb-ref %s-template :tangle no" module-name))
+        (cons "header-args:vue-html" (format ":noweb yes :noweb-ref %s-template :tangle no" module-name))
         (cons "header-args:css" (format ":noweb yes :noweb-ref %s-style :tangle no" module-name))))
 #+END_SRC
 
@@ -1742,14 +1746,22 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
              for node-body-noweb-ref = nil
              for body = (string-join (loop for i from 1 below (1- children-count)
                                            collect (tsc-node-text (tsc-get-nth-child node i))))
-             do (labels ((%build (node-type language &optional (literate-lang (symbol-name language)))
+             do (labels ((%build (node-type &key language 
+                                            mode
+                                            (literate-lang (symbol-name language))
+                                            (indent 0))
                            (values
-                            (format "<<%s-%s>>" module-name node-type)
+                            (format "%s<<%s-%s>>"
+                                    (string-join (loop repeat indent collect " "))
+                                    module-name node-type)
                             (with-temp-buffer
                               (insert body)
+                              ;; (when mode
+                              ;;   (funcall mode)
+                              ;;   (prettier-prettify))
                               (cons 
                                (make-literate-org-code-block
-                                :title (format " %s" node-type module-name)
+                                :title (format "%s of %s" node-type module-name)
                                 :properties (list (cons "literate-lang" literate-lang))
                                 :level section-level)
                                (cdr
@@ -1760,17 +1772,17 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
                   (ecase node-type
                     (script_element
                      (multiple-value-bind (noweb-ref blocks)
-                         (%build "script" 'tsx)
+                         (%build "script" :mode 'typescript-ts-mode :language 'tsx)
                        (setf node-body-noweb-ref noweb-ref
                              script-blocks blocks)))
                     (element
                      (multiple-value-bind (noweb-ref blocks)
-                         (%build "template" 'html "vue-html")
+                         (%build "template" :mode 'vue-mode :language 'vue-html :indent 2)
                        (setf node-body-noweb-ref noweb-ref
                              elements-blocks blocks)))
                     (style_element
                      (multiple-value-bind (noweb-ref blocks)
-                         (%build "style" 'css)
+                         (%build "style" :language 'css)
                        (setf node-body-noweb-ref noweb-ref
                              style-blocks blocks)))))
              (let ((node-text (format "%s\n%s\n%s\n"
@@ -1789,9 +1801,29 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 #+END_SRC
 
 
-**** html
+**** vue-html
+***** determine treesit parser language in current buffer
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-next-code-block-index ((language (eql html))
+(cl-defmethod literate-org-treesit-parser-language ((language (eql vue-html)))
+  'html)
+#+END_SRC
+
+
+
+
+***** literate-org-node-name
+
+****** default
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-node-name ((language (eql vue-html)) node-type node)
+  (aif (tsc-get-nth-child node 0)
+    (tsc-node-text it)
+    (tsc-node-text node)))
+#+END_SRC
+
+***** literate-org-next-code-block-index
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-next-code-block-index ((language (eql vue-html))
                                                   root start-index)
   (let* ((current-index start-index)
          (current-node (ts-get-nth-child root current-index))
