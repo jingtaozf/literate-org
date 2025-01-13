@@ -133,7 +133,11 @@ So comes this library to help me import Python modules from org files in Emacs.
       (cond ((find language '("python" "ipython") :test #'equalp)
              (python-black-org-mode-block t))
             ((find language '("tsx" "ts" "js" "vue" "vue-html" "css") :test #'equalp)
-             (prettier-prettify-org-src-code-at-point))
+             (let ((prettier-major-mode-parsers
+                    (append '((vue-html-mode vue)
+                              (tsx-ts-mode typescript))
+                            prettier-major-mode-parsers)))
+               (prettier-prettify-org-src-code-at-point)))
             ((null language) (error "Unsupported language %s" language))))))
 #+END_SRC
 ** format all org code blocks in current buffer
