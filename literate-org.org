@@ -1337,6 +1337,8 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
     (cl-loop for block in code-blocks do
              (cl-loop repeat (literate-org-code-block-level block) do (insert "*"))
              (insert " " (literate-org-code-block-title block) "\n")
+             (cl-loop for (key . value) in (literate-org-code-block-properties block)
+                      do (org-entry-put (point) key value))
              (awhen (literate-org-code-block-body block)
                (insert "#+BEGIN_SRC "
                        (literate-org-babel-language-name (literate-org-code-block-language block))
