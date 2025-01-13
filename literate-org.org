@@ -14,7 +14,6 @@
   - [[#keymap][keymap]]
   - [[#definition][definition]]
   - [[#enable-literate-org-mode-in-org-file][enable literate org mode in org file]]
-  - [[#execute-a-function-in-a-temp-buffer-for-org-code-block][execute a function in a temp buffer for org code block]]
   - [[#format-org-code-block-when-save][format org code block when save]]
   - [[#format-all-org-code-blocks-in-current-buffer][format all org code blocks in current buffer]]
   - [[#tangle-current-file-when-save][tangle current file when save]]
@@ -123,39 +122,6 @@ So comes this library to help me import Python modules from org files in Emacs.
                  (equal "org" (f-ext it)))
     (literate-org-mode 1)))
 #+END_SRC
-
-** execute a function in a temp buffer for org code block
-#+BEGIN_SRC elisp
-(defun update-org-code-block (update-func language file-name)
-  (save-mark-and-excursion
-    (pcase (org-src--contents-area (org-element-at-point))
-      (`(,beg ,end ,_)
-        (let ((buf (current-buffer))
-              (end (- end 1))
-              (temp-file (format "%s/%s.%s"
-                                 (if (string= "file-name" "no")
-                                   (or (aand (org-entry-get (point) "LITERATE_SOURCE_FILE" t)
-                                             (f-dirname it))
-                                       (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE_PATH" t))
-                                   (f-dirname file-name))
-                                 (make-symbol "literate-org")
-                                 (literate-org-file-extension language))))
-          (with-current-buffer (find-file-noselect temp-file)
-            (let ((temp-buf (current-buffer)))
-              (delete-region (point-min) (point-max))
-              (insert-buffer-substring-no-properties buf beg end)
-              (org-unescape-code-in-region (point-min) (point-max))
-              (funcall update-func temp-buf temp-file)
-              (org-escape-code-in-region (point-min) (point-max))
-              (with-current-buffer buf
-                (save-restriction
-                  (narrow-to-region beg end)
-                  (replace-buffer-contents temp-buf 0.1))))
-            (set-buffer-modified-p nil)
-            (kill-buffer (current-buffer)))
-          (delete-file temp-file))))))
-#+END_SRC
-
 ** format org code block when save
 #+BEGIN_SRC elisp
 (defun literate-org-format-code-block ()
@@ -167,13 +133,7 @@ So comes this library to help me import Python modules from org files in Emacs.
       (cond ((find language '("python" "ipython") :test #'equalp)
              (python-black-org-mode-block t))
             ((find language '("tsx" "ts" "js" "vue" "vue-html" "css") :test #'equalp)
-             (save-excursion
-               (search-backward "#+BEGIN_SRC ")
-               (update-org-code-block
-                #'(lambda (temp-buf temp-file)
-                    (prettier-prettify))
-                (intern language)
-                file-name)))
+             (prettier-prettify-org-src-code-at-point))
             ((null language) (error "Unsupported language %s" language))))))
 #+END_SRC
 ** format all org code blocks in current buffer
