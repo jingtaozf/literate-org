@@ -2033,7 +2033,7 @@ end
   (interactive "f")
   (let* ((data (json-read-file file))
          (cells (coerce (cdr (assoc 'cells data)) 'list))
-         (current-org-level 0))
+         (current-org-level (org-current-level)))
     (dolist (cell cells)
       (let ((cell-type (cdr (assoc 'cell_type cell)))
             (source (string-join (coerce (cdr (assoc 'source cell)) 'list))))
