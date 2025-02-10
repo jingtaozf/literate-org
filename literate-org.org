@@ -1699,6 +1699,7 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
          (module-comment (when (> count-of-children 0)
                            (literate-org-module-comment language root)))
          (main-items nil)
+         (comment-blocks nil)
          (script-blocks nil)
          (elements-blocks nil)
          (style-blocks nil)
@@ -1707,11 +1708,15 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
              for node = (ts-get-nth-child root index)
              for children-count = (tsc-count-children node)
              for node-type = (tsc-node-type node)
-             for node-start-text = (tsc-node-text (tsc-get-nth-child node 0))
-             for node-end-text = (tsc-node-text (tsc-get-nth-child node (1- children-count)))
+             for node-start-text = (when (> children-count 0)
+                                     (tsc-node-text (tsc-get-nth-child node 0)))
+             for node-end-text = (when (> children-count 0)
+                                   (tsc-node-text (tsc-get-nth-child node (1- children-count))))
              for node-body-noweb-ref = nil
-             for body = (string-join (loop for i from 1 below (1- children-count)
-                                           collect (tsc-node-text (tsc-get-nth-child node i))))
+             for body = (if (> children-count 0)
+                          (string-join (loop for i from 1 below (1- children-count)
+                                             collect (tsc-node-text (tsc-get-nth-child node i))))
+                          (tsc-node-text node))
              do (labels ((%build (node-type &key language 
                                             mode
                                             (literate-lang (symbol-name language))
@@ -1740,22 +1745,33 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
                      (multiple-value-bind (noweb-ref blocks)
                          (%build "script" :mode 'typescript-ts-mode :language 'tsx)
                        (setf node-body-noweb-ref noweb-ref
-                             script-blocks blocks)))
+                             script-blocks (nconc comment-blocks blocks))))
                     (element
                      (multiple-value-bind (noweb-ref blocks)
                          (%build "template" :mode 'vue-mode :language 'vue-html :indent 2)
                        (setf node-body-noweb-ref noweb-ref
-                             elements-blocks blocks)))
+                             elements-blocks (nconc comment-blocks blocks))))
                     (style_element
                      (multiple-value-bind (noweb-ref blocks)
                          (%build "style" :language 'css)
                        (setf node-body-noweb-ref noweb-ref
-                             style-blocks blocks)))))
-             (let ((node-text (format "%s\n%s\n%s\n"
-                                      node-start-text
-                                      node-body-noweb-ref
-                                      node-end-text)))
-               (setf main-items (nconc main-items (list node-text)))))
+                             style-blocks (nconc comment-blocks blocks))))
+                    (comment
+                     (let ((block (make-literate-org-code-block
+                                   :title (format "Comment %s" module-name)
+                                   :body body
+                                   :language 'vue
+                                   :level (1+ section-level))))
+                     (setf node-body-noweb-ref nil
+                           comment-blocks
+                           (nconc comment-blocks (list block)))))))
+             (when node-body-noweb-ref
+               (setf comment-blocks nil)
+               (let ((node-text (format "%s\n%s\n%s\n"
+                                        node-start-text
+                                        node-body-noweb-ref
+                                        node-end-text)))
+                 (setf main-items (nconc main-items (list node-text))))))
     (setf code-blocks
             (cons (make-literate-org-code-block
                    :title (format "Main wrapper %s" module-name)
