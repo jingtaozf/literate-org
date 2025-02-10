@@ -1251,7 +1251,8 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
                                      "\\." "/" module-name))))))
     (if (f-directory? module-path)
       (literate-org-import-directory module-name module-path)
-      (literate-org-import-file module-name module-path))))
+      (literate-org-import-file module-name module-path))
+    (message "Finished importing module %s from %s" module-name module-path)))
 #+END_SRC
 ***** import a directory
 #+BEGIN_SRC elisp
