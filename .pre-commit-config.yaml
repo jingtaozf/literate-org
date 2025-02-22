@@ -1,0 +1,19 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+# Usage
+# - pip install  pre-commit black flake8
+# - pre-commit install
+# - pre-commit run --all-file # To test it locally
+repos:
+- repo: local
+  hooks:
+    - id: black
+      name: black
+      entry: black --check
+      language: system
+      files: \.py$
+    - id: flake8
+      name: flake8
+      entry: flake8
+      language: system
+      files: \.py$

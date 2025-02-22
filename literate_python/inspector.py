@@ -1,8 +1,8 @@
-import json
 from inspect import getmembers, isbuiltin, ismethod
 from typing import Dict
 from datetime import datetime
 from multimethod import multimethod
+
 
 def stringify_val(member):
     key, val = member
@@ -11,6 +11,7 @@ def stringify_val(member):
     if type(val) in (dict, tuple, list):
         return key, _inspect(val)
     return key, f"{str(val)} {str(type(val))}"
+
 
 def is_trash(member):
     key, val = member
@@ -21,6 +22,7 @@ def is_trash(member):
         or type(val).__name__ == "method-wrapper"
     )
 
+
 def _pyinspect_inspect_object(obj):
     """
     Turns a **non-primitive** obj into a dictionary of its fields and their values.
@@ -28,6 +30,7 @@ def _pyinspect_inspect_object(obj):
     Doesn't display methods.
     """
     return dict(stringify_val(m) for m in reversed(getmembers(obj)) if not is_trash(m))
+
 
 def _pyinspect_add_quotes(key):
     """
@@ -42,11 +45,13 @@ def _pyinspect_add_quotes(key):
     """
     return '"{}"'.format(key) if type(key) is str else key
 
+
 def trim_seq(seq, elem_cap):
     if type(seq) is dict:
         return _pyinspect_take_dict(seq, elem_cap)
     elif type(seq) in (tuple, list):
         return seq[:elem_cap]
+
 
 def _pyinspect_take_dict(d: Dict, n: int):
     "Returns a new dictionary with the first n pairs from d"
@@ -61,29 +66,36 @@ def _pyinspect_take_dict(d: Dict, n: int):
 
     return dict(iterator())
 
+
 @multimethod
 def _inspect(obj) -> dict:
     return {"type": "object", "value": _pyinspect_inspect_object(obj)}
+
 
 @_inspect.register  # type: ignore
 def _(obj: str) -> dict:
     return {"type": "string", "value": obj}
 
+
 @_inspect.register  # type: ignore
 def _(obj: bool) -> dict:
     return {"type": "bool", "value": obj}
+
 
 @_inspect.register  # type: ignore
 def _(obj: int) -> dict:
     return {"type": "integer", "value": obj}
 
+
 @_inspect.register  # type: ignore
 def _(obj: float) -> dict:
     return {"type": "float", "value": obj}
 
+
 @_inspect.register  # type: ignore
 def _(obj: complex) -> dict:
     return {"type": "complex", "value": obj}
+
 
 @_inspect.register  # type: ignore
 def _(obj: tuple) -> dict:
@@ -92,6 +104,7 @@ def _(obj: tuple) -> dict:
         "value": [_inspect(item) for item in obj],
     }
 
+
 @_inspect.register  # type: ignore
 def _(obj: list) -> dict:
     return {
@@ -99,12 +112,14 @@ def _(obj: list) -> dict:
         "value": [_inspect(item) for item in obj],
     }
 
+
 @_inspect.register  # type: ignore
 def _(obj: dict) -> dict:
     return {
         "type": "dict",
         "value": {_pyinspect_add_quotes(k): _inspect(v) for (k, v) in obj.items()},
     }
+
 
 @_inspect.register  # type: ignore
 def _(obj: datetime) -> dict:
@@ -114,5 +129,6 @@ def _(obj: datetime) -> dict:
         "value": obj.isoformat(),
     }
 
-def _pyinspect_json(obj):
-    return json.dumps(_inspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])
+
+# def _pyinspect_json(obj):
+#     return json.dumps(_inspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])

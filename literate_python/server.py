@@ -1,15 +1,10 @@
 import importlib
 import os
 import sys
-import time
-import json
 from flask import Flask, request, jsonify
 
 import traceback
-import builtins
 
-# To convert lisp ratio to python
-import fractions
 from contextlib import redirect_stdout
 from contextlib import redirect_stderr
 from io import StringIO
@@ -28,6 +23,7 @@ from literate_python.inspector import _inspect
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
 
 def ensure_module(module_name, module_create_method):
     """Ensure a module is loaded and return it."""
@@ -56,6 +52,7 @@ def ensure_module(module_name, module_create_method):
             msg = f"Module {module_create_method} doesn't exist"
             raise ValueError(msg)
 
+
 def process_a_message(message):
     stdout_stream = StringIO()
     stderr_stream = StringIO()
@@ -76,7 +73,7 @@ def process_a_message(message):
                 if error is None:
                     if type == "eval":
                         exec(compile(code, module_name or "code", "exec"), dict)
-                        result_name = message.get("result-name", "_")
+                        message.get("result-name", "_")
                         result = dict.get("_", None)
                     elif type == "exec":
                         result = exec(
@@ -112,6 +109,7 @@ def process_a_message(message):
     else:
         return return_value
 
+
 def register(request):
     # Get JSON data
     data = request.get_json()
@@ -132,9 +130,11 @@ def register(request):
     logger.debug("/register Returning:%s", return_value)
     return jsonify(return_value)
 
+
 @app.route("/lpy/register", methods=["POST"])
 def register_router():
     return register(request)
+
 
 def _execute(request):
     # Get JSON data
@@ -150,23 +150,27 @@ def _execute(request):
     logger.debug("/execute Returning:%s", return_value)
     return jsonify(return_value)
 
+
 @app.route("/lpy/execute", methods=["POST"])
 def execute():
     return _execute(request)
 
+
 def _status(request):
     return jsonify({"status": "ok"})
+
 
 @app.route("/lpy/status", methods=["GET"])
 def status():
     return _status(request)
 
+
 def run_server():
     host = "127.0.0.1"
     port = 7330
-    if "LITERATE_PYTHON_HOST" in os.environ:
-        host = os.environ["LITERATE_PYTHON_HOST"]
-    if "LITERATE_PYTHON_PORT" in os.environ:
-        port = int(os.environ["LITERATE_PYTHON_PORT"])
+    if "LITERATE_ORG_HOST" in os.environ:
+        host = os.environ["LITERATE_ORG_HOST"]
+    if "LITERATE_ORG_PORT" in os.environ:
+        port = int(os.environ["LITERATE_ORG_PORT"])
     register_literate_module_finder()
     app.run(debug=True, port=port, host=host, use_reloader=False)

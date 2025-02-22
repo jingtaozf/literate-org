@@ -11,12 +11,15 @@ logger = logging.getLogger(__name__)
 if "inMemoryModules" not in globals():
     inMemoryModules = {}
 
+
 def register_literate_modules(module_spec_list: list) -> None:
     for module_spec in module_spec_list:
         inMemoryModules[module_spec["name"]] = module_spec
 
+
 def _get_module_spec(fullname: str) -> bool:
     return inMemoryModules.get(fullname) or inMemoryModules.get(fullname + ".__init__")
+
 
 class LiterateImporter(object):
     def find_module(self, fullname: str, path=None):
@@ -41,12 +44,14 @@ class LiterateImporter(object):
         exec(mod_spec["content"], mod.__dict__)
         return mod
 
+
 class LiterateModuleFinder(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path, target=None):
         if _get_module_spec(fullname):
             logger.debug(f"Found literate module {fullname}")
             return importlib.machinery.ModuleSpec(fullname, LiterateImporter())
         return None
+
 
 def register_literate_module_finder():
     sys.meta_path = [
@@ -55,11 +60,15 @@ def register_literate_module_finder():
     print("Register literate importer.\n")
     sys.meta_path.append(LiterateModuleFinder())
 
+
 def load_literate_modules_from_org_file(org_file: str) -> None:
-    org = orgparse.load(org_file)
+    orgparse.load(org_file)
+
 
 def load_literate_modules_from_org_node(node: orgparse.OrgNode) -> None:
-    root_module = LITERATE_PYTHON_ROOT_MODULE
+    # root_module = LITERATE_ORG_ROOT_MODULE
+    pass
+
 
 def build_org_model_from_local_python_package(package_path: str) -> str:
     pass
