@@ -18,6 +18,7 @@
   - [[#format-all-org-code-blocks-in-current-buffer][format all org code blocks in current buffer]]
   - [[#tangle-current-file-when-save][tangle current file when save]]
   - [[#xref-backend][xref backend]]
+    - [[#visit-a-point-in-the-tangled-file-of-a-code-block][visit a point in the tangled file of a code block]]
     - [[#visit-a-point-in-a-code-block-in-the-tangled-file][visit a point in a code block in the tangled file]]
     - [[#show-xrefs-in-org-file-if-possible][show xrefs in org file if possible]]
     - [[#find-definitions][find definitions]]
@@ -62,6 +63,7 @@
     - [[#a-comint-input-sender-to-exec-code-in-a-namespace][a comint input sender to exec code in a namespace.]]
   - [[#setup-python-shell-eval-setup-code][setup python shell eval setup code]]
 - [[#utilities-1][Utilities]]
+  - [[#clear-subtree][clear subtree]]
   - [[#import-from-jupyter-notebook][import from jupyter notebook]]
     - [[#convert-markdown-to-org-syntax][convert markdown to org syntax]]
     - [[#parse-a-notebook-file][parse a notebook file]]
@@ -179,7 +181,7 @@ So comes this library to help me import Python modules from org files in Emacs.
                   (run-hook-with-args 'literate-org-after-tangle-current-file file-name))))))))))
 #+END_SRC
 ** xref backend
-*** visit a point in a code block in the tangled file
+*** visit a point in the tangled file of a code block
 #+BEGIN_SRC elisp
 (defun literate-org-visit-point-at-tangled-position ()
   (when-let* ((header-args (cl-third (org-babel-get-src-block-info 'light)))
@@ -222,11 +224,81 @@ So comes this library to help me import Python modules from org files in Emacs.
 #+END_SRC
 
 
+*** visit a point in a code block in the tangled file
+#+BEGIN_SRC elisp
+(defun literate-org-point-at-code-block-of-tangled-location (org-buffer file-name point)
+  (when (file-exists-p file-name)
+    (with-current-buffer (find-file-noselect file-name)
+      (save-excursion
+        (goto-char point)
+        (let* ((column-index (- (point) (line-beginning-position)))
+               (line-index (line-number-at-pos))
+               (org-point 0)
+               (org-current-block-start-line nil)
+               (org-current-block-lines 0))
+          (goto-char (point-min))
+          (with-current-buffer org-buffer
+            (save-excursion
+              (goto-char (point-min))
+              (when (search-forward (format ":header-args: :tangle %s" file-name) nil t)
+                (setf org-point (point)))))
+          (when (null org-point)
+            (return-from literate-org-point-at-code-block-of-tangled-location nil))
+          ;; while current block is not for current tangled line
+          (while (<= (+ (line-number-at-pos) org-current-block-lines) line-index)
+            ;; forward current block in tangled file.
+            (forward-line org-current-block-lines)
+            (while (and (not (eobp))
+                        (save-excursion
+                          (beginning-of-line)
+                          (looking-at-p "^\\s-*$")))
+              (forward-line 1))
+            ;; search next code block in org buffer
+            (with-current-buffer org-buffer
+              (save-excursion
+                (goto-char org-point)
+                (search-forward "#+BEGIN_SRC" nil)
+                (forward-line)
+                (setf org-point (point))
+                (setf org-current-block-start-line (line-number-at-pos))
+                (search-forward "#+END_SRC" nil)
+                (setf org-current-block-lines (- (line-number-at-pos) org-current-block-start-line)))))
+          (let ((lines (- line-index (line-number-at-pos))))
+            (with-current-buffer org-buffer
+              (save-excursion
+                (goto-char org-point)
+                (forward-line lines)
+                (goto-char (line-beginning-position))
+                (forward-char column-index)
+                (point-marker)))))))))
+#+END_SRC
+
+
 *** show xrefs in org file if possible
 #+BEGIN_SRC elisp
 (defun literate-org-xref-show-definitions-buffer (fetcher alist)
-  (let ((xrefs (funcall fetcher)))
-    (xref-show-definitions-buffer fetcher alist)))
+  (let ((xrefs (funcall fetcher))
+        (org-buffer (current-buffer)))
+    (loop for xref in xrefs
+          for location = (xref-match-item-location xref)
+          for group = (xref-location-group location)
+          for org-point-marker = (literate-org-point-at-code-block-of-tangled-location
+                                   org-buffer group (marker-position (xref-location-marker location)))
+          if org-point-marker
+            do (setf (xref-match-item-location xref)
+                       (xref-make-buffer-location org-buffer (marker-position org-point-marker))))
+    (let (buf)
+      (cond
+        ((not (cdr xrefs))
+         (xref-pop-to-location (car xrefs)
+                               (assoc-default 'display-action alist)))
+        (t
+         (setq buf
+                 (xref--show-xref-buffer fetcher
+                                         (cons (cons 'fetched-xrefs xrefs)
+                                               alist)))
+         (xref--auto-jump-first buf (assoc-default 'auto-jump alist))
+         buf)))))
 #+END_SRC
 
 *** find definitions
@@ -236,6 +308,10 @@ move point to the target position.
 #+BEGIN_SRC elisp
 (defun literate-org-find-dwim ()
   (interactive)
+  (unless (string= "org" (f-ext (buffer-file-name (current-buffer))))
+    (lsp-find-definition)
+    (return))
+
   (multiple-value-bind (tangled-file-name tangled-point)
       (literate-org-visit-point-at-tangled-position)
     (let ((loc
@@ -2116,6 +2192,19 @@ def __PYTHON_EL_eval(source, filename, module=None):
   )
 #+END_SRC
 * Utilities
+** clear subtree
+#+BEGIN_SRC elisp
+(defun literate-org-clear-subtree ()
+  (interactive)
+  (org-mark-subtree) ;; mark the current subtree
+  (forward-line) ;; move point forward, so the headline isn't in the region
+  (when (string-prefix-p ":PROPERTIES:" (thing-at-point 'line t))
+    (search-forward ":END:")
+    (forward-line))
+  (delete-region (region-beginning) (region-end)) ;; delete the rest
+)
+#+END_SRC
+
 ** import from jupyter notebook 
 :PROPERTIES:
 :literate-lang: elisp
