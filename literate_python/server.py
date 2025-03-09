@@ -1,3 +1,4 @@
+import ast
 import importlib
 import os
 import sys
@@ -23,6 +24,38 @@ from literate_python.inspector import _inspect
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+
+def get_top_level_names(code):
+    tree = ast.parse(code)
+    variables = []
+    functions = []
+    classes = []
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            # Handle assignments like x = 1 or x, y = 2, 3.
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    variables.append(target.id)
+                elif isinstance(target, ast.Tuple):
+                    for elt in target.elts:
+                        if isinstance(elt, ast.Name):
+                            variables.append(elt.id)
+        elif isinstance(node, ast.AnnAssign):
+            # Handle annotated assignments like: x: int = 1.
+            if isinstance(node.target, ast.Name):
+                variables.append(node.target.id)
+        elif isinstance(node, ast.FunctionDef):
+            functions.append(node.name)
+        elif isinstance(node, ast.ClassDef):
+            classes.append(node.name)
+
+    return variables, functions, classes
+
+
+#: app locals in current port
+server_locals = {}
 
 
 def ensure_module(module_name, module_create_method):
@@ -58,6 +91,7 @@ def process_a_message(message):
     stderr_stream = StringIO()
     error = None
     result = None
+    locals = []
     with redirect_stdout(stdout_stream):
         with redirect_stderr(stderr_stream):
             try:
@@ -70,21 +104,28 @@ def process_a_message(message):
                     module = ensure_module(module_name, module_create_method)
                     dict = module.__dict__
 
-                if error is None:
-                    if type == "eval":
-                        exec(compile(code, module_name or "code", "exec"), dict)
-                        message.get("result-name", "_")
-                        result = dict.get("_", None)
-                    elif type == "exec":
-                        result = exec(
-                            compile(code, module_name or "code", "exec"), dict
-                        )
-                        logger.debug("Executed code: %s,result:%s", code, result)
-                    elif type == "quit":
-                        result = None
-                    else:
-                        error = "Unknown type: {}".format(type)
-                        raise ValueError(error)
+                if type == "eval":
+                    exec(compile(code, module_name or "code", "exec"), dict)
+                    message.get("result-name", "_")
+                    result = dict.get("_", None)
+                elif type == "exec":
+                    result = exec(compile(code, module_name or "code", "exec"), dict)
+                    vars_, funcs, classes = get_top_level_names(code)
+                    for local in vars_ + funcs + classes:
+                        if local in server_locals:
+                            _local = server_locals[local]
+                            if hasattr(_local, "__module__"):
+                                _module_name = _local.__module__
+                                if _module_name == module_name:
+                                    # update the local with the new value
+                                    server_locals[local] = getattr(module, local)
+                                    locals.append(local)
+
+                elif type == "quit":
+                    result = None
+                else:
+                    error = "Unknown type: {}".format(type)
+                    raise ValueError(error)
             except Exception as e:
                 # printing stack trace
                 traceback.print_exc()
@@ -93,6 +134,7 @@ def process_a_message(message):
         return_value = {
             "result": _inspect(result),
             "type": "result",
+            "locals": locals,
             "stdout": stdout_stream.getvalue(),
             "stderr": stderr_stream.getvalue(),
         }
@@ -168,9 +210,9 @@ def status():
 def run_server():
     host = "127.0.0.1"
     port = 7330
-    if "LITERATE_ORG_HOST" in os.environ:
-        host = os.environ["LITERATE_ORG_HOST"]
-    if "LITERATE_ORG_PORT" in os.environ:
-        port = int(os.environ["LITERATE_ORG_PORT"])
+    if "LITERATE_PYTHON_HOST" in os.environ:
+        host = os.environ["LITERATE_PYTHON_HOST"]
+    if "LITERATE_PYTHON_PORT" in os.environ:
+        port = int(os.environ["LITERATE_PYTHON_PORT"])
     register_literate_module_finder()
     app.run(debug=True, port=port, host=host, use_reloader=False)

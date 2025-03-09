@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "literate_python"
-version = "0.0.4"
+version = "0.0.5"
 description = "Develop Python modules in Org files."
 authors = ["Jingtao Xu <jingtaozf@gmail.com>"]
 license = "MIT"

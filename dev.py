@@ -9,25 +9,51 @@ def __():
     import marimo as mo
     import os
     import sys
+    import logging
+
+    def set_log_level(logger, level):
+        # Set the logger level
+        if isinstance(logger, str):
+            logger = logging.getLogger(logger)
+        logger.setLevel(level)
+
+        # If no handler is attached, add one:
+        if not logger.handlers:
+            ch = logging.StreamHandler()  # Logs to console
+            ch.setLevel(level)
+            formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            )
+            ch.setFormatter(formatter)
+            logger.addHandler(ch)
+            logger.propagate = False
 
     mo.md("# Prepareation\n ## setup marimo & logger \n")
-    return mo, os, sys
+    return logging, mo, os, set_log_level, sys
+
+
+@app.cell
+def __(logging, set_log_level):
+    set_log_level("literate_python", logging.INFO)
+    return
 
 
 @app.cell
 def __(mo, os):
     mo.md("## Prepare a server for literate python")
-    from literate_python.server import run_server as run_literate_python_server
+    from literate_python import server as literate_server
     from threading import Thread
 
     os.environ["LITERATE_PYTHON_HOST"] = "127.0.0.1"
-    os.environ["LITERATE_PYTHON_PORT"] = "7332"
-    literate_python_server_thread = Thread(target=run_literate_python_server)
+    os.environ["LITERATE_PYTHON_PORT"] = "7329"
+
+    literate_server.server_locals = locals()
+    literate_python_server_thread = Thread(target=literate_server.run_server)
     literate_python_server_thread.start()
-    return Thread, literate_python_server_thread, run_literate_python_server
+    return Thread, literate_python_server_thread, literate_server
 
 
-@app.cell
+@app.cell(disabled=True, hide_code=True)
 def __():
     from sentence_transformers import SentenceTransformer
     from sklearn.cluster import KMeans
@@ -132,7 +158,6 @@ def __():
         print(f"\nCluster {cluster_id}:")
         for item in items:
             print(f"  - {item}")
-
     return (
         KMeans,
         SentenceTransformer,
@@ -153,6 +178,14 @@ def __():
 
 @app.cell
 def __():
+    from literate_python.tests.test_server import test1
+
+    return (test1,)
+
+
+@app.cell
+def __(test1):
+    test1()
     return
 
 
