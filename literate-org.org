@@ -22,6 +22,7 @@
     - [[#visit-a-point-in-a-code-block-in-the-tangled-file][visit a point in a code block in the tangled file]]
     - [[#show-xrefs-in-org-file-if-possible][show xrefs in org file if possible]]
     - [[#find-definitions][find definitions]]
+    - [[#describe-thing-at-point][describe thing at point]]
 - [[#python-library-for-a-literate-server][Python library for a literate server]]
   - [[#idea][Idea]]
   - [[#prototype][Prototype]]
@@ -326,6 +327,22 @@ move point to the target position.
         (let ((xref-show-definitions-function 'literate-org-xref-show-definitions-buffer))
           (lsp-show-xrefs (lsp--locations-to-xref-items loc) nil nil))))))
 #+END_SRC
+*** describe thing at point
+#+BEGIN_SRC elisp
+(defun literate-org-describe-thing-at-point ()
+  (interactive)
+  (unless (string= "org" (f-ext (buffer-file-name (current-buffer))))
+    (lsp-describe-thing-at-point)
+    (return))
+
+  (multiple-value-bind (tangled-file-name tangled-point)
+      (literate-org-visit-point-at-tangled-position)
+    (with-current-buffer (find-file-noselect tangled-file-name)
+      (lsp 1)
+      (goto-char tangled-point)
+      (lsp-describe-thing-at-point))))
+#+END_SRC
+
 * Python library for a literate server
 :PROPERTIES:
 :header-args: :results silent :session :tangle no
