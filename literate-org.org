@@ -229,14 +229,14 @@ So comes this library to help me import Python modules from org files in Emacs.
 
 *** visit a point in a code block in the tangled file
 #+BEGIN_SRC elisp
-(defun literate-org-point-at-code-block-of-tangled-location (org-buffer file-name point)
+(cl-defun literate-org-point-at-code-block-of-tangled-location (org-buffer file-name point)
   (when (file-exists-p file-name)
     (with-current-buffer (find-file-noselect file-name)
       (save-excursion
         (goto-char point)
         (let* ((column-index (- (point) (line-beginning-position)))
                (line-index (line-number-at-pos))
-               (org-point 0)
+               (org-point nil)
                (org-current-block-start-line nil)
                (org-current-block-lines 0))
           (goto-char (point-min))
@@ -246,7 +246,7 @@ So comes this library to help me import Python modules from org files in Emacs.
               (when (search-forward (format ":header-args: :tangle %s" file-name) nil t)
                 (setf org-point (point)))))
           (when (null org-point)
-            (return-from literate-org-point-at-code-block-of-tangled-location nil))
+            (cl-return-from literate-org-point-at-code-block-of-tangled-location nil))
           ;; while current block is not for current tangled line
           (while (<= (+ (line-number-at-pos) org-current-block-lines) line-index)
             ;; forward current block in tangled file.
