@@ -280,13 +280,30 @@ So comes this library to help me import Python modules from org files in Emacs.
 *** show xrefs in org file if possible
 #+BEGIN_SRC elisp
 (defun literate-org-xref-show-definitions-buffer (fetcher alist)
-  (let ((xrefs (funcall fetcher))
-        (org-buffer (current-buffer)))
+  (let* ((xrefs (funcall fetcher))
+         (current (current-buffer))
+         (current-dir (when (buffer-file-name current)
+                        (file-name-directory (buffer-file-name current))))
+         ;; Search for org buffers in the same directory
+         (org-bufs (cl-remove-if-not
+                    (lambda (buf)
+                      (with-current-buffer buf
+                        (let ((buf-file (buffer-file-name)))
+                          (and buf-file current-dir
+                               (string= (file-name-directory buf-file)
+                                        current-dir)))))
+                    (org-buffer-list)))
+         ;; put current org buffer in the first place
+         (org-bufs (cons current (remove current org-bufs))))
     (loop for xref in xrefs
           for location = (xref-match-item-location xref)
           for group = (xref-location-group location)
-          for org-point-marker = (literate-org-point-at-code-block-of-tangled-location
-                                   org-buffer group (marker-position (xref-location-marker location)))
+          for (org-buffer . org-point-marker)
+            = (loop for buf in org-bufs
+                    for marker = (literate-org-point-at-code-block-of-tangled-location
+                                          buf group (marker-position (xref-location-marker location)))
+                    if marker
+                      return (cons buf marker))
           if org-point-marker
             do (setf (xref-match-item-location xref)
                        (xref-make-buffer-location org-buffer (marker-position org-point-marker))))
@@ -2369,7 +2386,7 @@ end
                        (insert " " (literate-org-code-block-title block) "\n")
                        (insert "#+BEGIN_SRC " (literate-org-babel-language-name (literate-org-code-block-language block)))
                        (if (loop for prefix in literate-org-ipynb-tangled-prefix-patterns
-                                 never (string-prefix-p prefix title))
+                                 never (string-prefix-p prefix (literate-org-code-block-title block)))
                          (insert " :tangle no"))
                        (insert "\n" (literate-org-code-block-body block))
                        (insert "\n#+END_SRC\n"))))))
