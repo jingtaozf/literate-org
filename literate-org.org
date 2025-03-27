@@ -48,11 +48,19 @@
     - [[#get-top-level-python-code][get top level python code]]
     - [[#get-the-module-name-for-a-file-name][get the module name for a file name]]
     - [[#load-python-code-to-current-module][load python code to current module]]
+    - [[#a-cache-db][a cache db]]
 - [[#python-inspector-for-emacs][Python inspector for Emacs]]
     - [[#import-required-packages][Import required packages]]
     - [[#utility-functions][Utility functions]]
     - [[#dispatches-the-appropriate-inspection-according-to-obj-type][Dispatches the appropriate inspection according to obj type]]
     - [[#inspect-as-json][inspect as json]]
+- [[#llm-with-code-blocks][LLM with code blocks]]
+  - [[#the-provider][the provider]]
+  - [[#embed][embed]]
+    - [[#embedding][embedding]]
+    - [[#normalize][normalize]]
+  -  [[#semantic-clustering][semantic clustering]]
+  - [[#toc][TOC]]
 - [[#sync-between-org-files-and-source-files][Sync between org files and source files]]
   - [[#introduction-1][Introduction]]
   - [[#import][Import]]
@@ -997,6 +1005,8 @@ def test1():
 (require 'lsp);; for `lsp-workspace-root'
 (require 'python-black)
 (require 'prettier)
+(require 'emacsql-sqlite) ; for local cache
+(require 'llm-prompt)
 #+END_SRC
 
 ** Utilities
@@ -1158,6 +1168,32 @@ override our own compilation report.
 
     (literate-org-remote-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded %s[%s:%s] in module %s" (treesit-node-type node) begin end module-name)))
+#+END_SRC
+*** a cache db
+**** get db
+#+BEGIN_SRC elisp
+(defvar literate-org-db-instance nil) 
+(defun literate-org-db ()
+  (unless literate-org-db-instance
+    (setf literate-org-db-instance (emacsql-sqlite (f-join user-emacs-directory "literate-org.db")))
+    (emacsql literate-org-db-instance [:create-table :if :not :exists summary
+                                        ([(key text :primary-key)
+                                          (value text)])])
+    (emacsql literate-org-db-instance [:create-table :if :not :exists embedding
+                                        ([(key text :primary-key)
+                                          (value text)])]))
+  literate-org-db-instance)
+#+END_SRC
+**** as a key value
+***** get value
+#+BEGIN_SRC elisp
+(defun literate-org-db-get (table key)
+  (caar (emacsql literate-org-db-instance [:select value :from $s2 :where (= key $s1)] key table)))
+#+END_SRC
+***** set value
+#+BEGIN_SRC elisp
+(defun literate-org-db-set (table key value)
+  (emacsql literate-org-db-instance [:insert-or-replace-into $s3 :values ([$s1 $s2])] key value table))
 #+END_SRC
 * Python inspector for Emacs
 :PROPERTIES:
@@ -1341,6 +1377,102 @@ def _(obj: datetime) -> dict:
 #     return json.dumps(_inspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])
 
 #+END_SRC
+* LLM with code blocks
+:PROPERTIES:
+:literate-lang: elisp
+:END:
+** the provider
+#+BEGIN_SRC elisp
+(defvar literate-org-llm-refactoring-provider nil "The provider for literate refactoring.")
+#+END_SRC
+
+** embed
+*** embedding
+#+BEGIN_SRC elisp
+(defun literate-org-embed-code-block (code lang)
+  "Return an embedding vector for CODE."
+  (let* ((source (format "%s\n%s" lang code))
+         (embedding (literate-org-db-get 'embedding source)))
+    (if embedding
+      (read embedding)
+      (let ((embedding (llm-embedding literate-org-llm-refactoring-provider source)))
+        (literate-org-db-set 'embedding source (prin1-to-string embedding))
+        embedding))))
+#+END_SRC
+*** normalize
+#+BEGIN_SRC elisp
+(defun literate-org-normalize-vector (vec)
+  "Normalize a vector to unit length."
+  (let ((norm (sqrt (apply #'+ (mapcar (lambda (x) (* x x)) vec)))))
+    (mapcar (lambda (x) (/ x norm)) vec)))
+#+END_SRC
+**  semantic clustering
+***** data structure of a code block
+#+BEGIN_SRC elisp
+(cl-defstruct literate-org-code-block
+  title
+  body
+  language
+  properties
+  embedding
+  summary
+  parent
+  level)
+#+END_SRC
+***** summary of a code block
+****** prompt
+#+BEGIN_SRC elisp
+(llm-defprompt literate-org-summary-prompt "Please summarize the following {{language}} code block {{code}}")
+#+END_SRC
+
+****** impl
+#+BEGIN_SRC elisp
+(cl-defun literate-org-code-summary (code lang callback &key force)
+  "Summarize the code block."
+  (lexical-let* ((prompt (llm-prompt-fill 'literate-org-summary-prompt literate-org-llm-refactoring-provider
+                                          :language lang :code code))
+                 (summary (literate-org-db-get 'summary prompt))
+                 (callback callback)
+                 (internal-callback (lambda (summary)
+                                      (literate-org-db-set 'summary prompt summary)
+                                      (funcall callback summary))))
+    (if (and (not force) summary)
+      (funcall callback summary)
+      (llm-chat-async
+       literate-org-llm-refactoring-provider
+       (llm-make-chat-prompt
+        prompt :context "
+Summarize the entire code block concisely and elegantly in English with markdown syntax .
+Only elaborate on parts that may not be immediately clear to a senior engineer.
+If the code is self-explanatory, you may return nothing.")
+       internal-callback
+       (lambda (_ error)
+         (message "Failed to summarize code block: %s" error))
+       ))))
+#+END_SRC
+
+****** an interactive command
+#+BEGIN_SRC elisp
+(defun literate-org-code-summary-for-current-code-block ()
+  (interactive)
+  (let* ((context-info (second (org-element-context)))
+         (block-arguments (third (org-babel-get-src-block-info)))
+         (info (org-babel-get-src-block-info))
+         (language (nth 0 info))
+         (body (nth 1 info))
+         (code (plist-get context-info :value)))
+    (message "Summarizing code block in %s..." language)
+    (literate-org-code-summary
+     code language
+     (lambda (summary)
+       (with-current-buffer (get-buffer-create "*literate-org-summary*")
+         (delete-region (point-min) (point-max))
+         (insert summary)
+         (markdown-mode))
+       (switch-to-buffer-other-window "*literate-org-summary*")))))
+#+END_SRC
+
+** TOC
 * Sync between org files and source files
 :PROPERTIES:
 :literate-lang: elisp
@@ -1397,17 +1529,6 @@ we can parse the Python code and get the first function name.
   "The maximum size of a title for an org section."
   :group 'literate-org)
 #+END_SRC
-**** data structure
-***** code block
-#+BEGIN_SRC elisp
-(cl-defstruct literate-org-code-block
-  title
-  body
-  language
-  properties
-  level)
-#+END_SRC
-
 **** generic methods
 #+BEGIN_SRC elisp
 (cl-defgeneric literate-org-module-comment (language node)
