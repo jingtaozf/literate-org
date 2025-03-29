@@ -120,14 +120,16 @@ So comes this library to help me import Python modules from org files in Emacs.
            ;; The command `save-buffer` utilizes the base buffer for an indirect buffer.
            (add-hook 'before-save-hook 'literate-org-format-code-block -50 t)
            (add-hook 'after-save-hook 'literate-org-tangle-current-file -50 t)
-           (add-hook 'xref-backend-functions #'literate-org-xref-backend -50 t)))))
+           ;; (add-hook 'xref-backend-functions #'literate-org-xref-backend -50 t)
+           ))))
     (t
      (when (equal "org" (f-ext (buffer-file-name (current-buffer))))
        (when (buffer-base-buffer)
          (with-current-buffer (buffer-base-buffer)
            (remove-hook 'before-save-hook 'literate-org-format-code-block t)
            (remove-hook 'after-save-hook 'literate-org-tangle-current-file t)))
-       (remove-hook 'xref-backend-functions #'literate-org-xref-backend t)))))
+       ;; (remove-hook 'xref-backend-functions #'literate-org-xref-backend t)
+       ))))
 #+END_SRC
 ** enable literate org mode in org file
 #+BEGIN_SRC elisp
