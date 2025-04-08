@@ -1190,12 +1190,12 @@ override our own compilation report.
 ***** get value
 #+BEGIN_SRC elisp
 (defun literate-org-db-get (table key)
-  (caar (emacsql literate-org-db-instance [:select value :from $s2 :where (= key $s1)] key table)))
+  (caar (emacsql (literate-org-db) [:select value :from $s2 :where (= key $s1)] key table)))
 #+END_SRC
 ***** set value
 #+BEGIN_SRC elisp
 (defun literate-org-db-set (table key value)
-  (emacsql literate-org-db-instance [:insert-or-replace-into $s3 :values ([$s1 $s2])] key value table))
+  (emacsql (literate-org-db) [:insert-or-replace-into $s3 :values ([$s1 $s2])] key value table))
 #+END_SRC
 * Python inspector for Emacs
 :PROPERTIES:
