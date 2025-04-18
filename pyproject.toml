@@ -10,7 +10,7 @@ readme = "README.org"
 python = "^3.10"
 flask = "^3.0.3"
 orgparse = "^0.4.20231004"
-multimethod = "^1.12"
+multimethod = "^2.0"
 sentence-transformers = "^3.4.1"
 scikit-learn = "^1.6.1"
 

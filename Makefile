@@ -8,3 +8,6 @@ lint:
 	poetry run flake8 
 dev:
 	poetry run marimo edit dev.py
+
+server:
+	env PYTHONPATH=$(PWD) poetry run python -m literate_python 
