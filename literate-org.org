@@ -181,7 +181,6 @@ So comes this library to help me import Python modules from org files in Emacs.
           (run-hook-with-args 'literate-org-after-tangle-current-file file-name))
       ;; Try to find the parent code block usng the current noweb-ref and tangle it.
       (when-let* ((noweb-ref (cdr (assoc :noweb-ref header-args))))
-        (message "No tangle file specified.")
         (let ((noweb-ref-body (format "<<%s>>" noweb-ref)))
           (save-excursion
             (save-restriction
@@ -1666,9 +1665,11 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
          (root-path (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE_PATH" t))
          (module-path (or module-path
                           (when root-path
-                            (concat root-path "/"
-                                    (dired-replace-in-string
-                                     "\\." "/" module-name))))))
+                            (if module-name
+                              (concat root-path "/"
+                                      (dired-replace-in-string
+                                       "\\." "/" module-name))
+                              root-path)))))
     (if (f-directory? module-path)
       (literate-org-import-directory module-name module-path)
       (literate-org-import-file module-name module-path))
@@ -1682,34 +1683,41 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
                         (aand (org-entry-get (point) "LITERATE_ORG_LANGUAGE" t)
                               (list (intern it)))
                         (list (intern (read-from-minibuffer "Which language: ")))))
+         (excluded-modules (aand (org-entry-get (point) "LITERATE_ORG_EXCLUDED_MODULES" t)
+                                 (split-string it)))
          (new-level (1+ level)))
-    ;; TODO: cleanup empty directories.
-    (dolist (file (directory-files module-directory t))
-      (when-let* ((ext (f-ext file))
-                  (language (find-if #'(lambda (language)
-                                         (equal ext (literate-org-file-extension language)))
-                                     languages)))
-        (let* ((relative-name (f-no-ext (f-relative file module-directory)))
-               (new-module-name (format "%s.%s" module-name
-                                        (dired-replace-in-string
-                                         "/" "." relative-name))))
-          (literate-org-import-source-file-to-org
-           language file new-level new-module-name))))
+    (labels ((%build-module-name (relative-name)
+               (if module-name
+                 (format "%s.%s" module-name
+                         (dired-replace-in-string
+                          "/" "." relative-name))
+                 (dired-replace-in-string
+                  "/" "." relative-name))))
+      ;; TODO: cleanup empty directories.
+      (dolist (file (directory-files module-directory t))
+        (when-let* ((ext (f-ext file))
+                    (language (find-if #'(lambda (language)
+                                           (equal ext (literate-org-file-extension language)))
+                                       languages)))
+          (let* ((relative-name (f-no-ext (f-relative file module-directory)))
+                 (new-module-name (%build-module-name relative-name)))
+            (unless (find new-module-name excluded-modules :test #'string=) 
+              (literate-org-import-source-file-to-org
+               language file new-level new-module-name)))))
 
-    (dolist (directory (f-directories module-directory))
-      (let* ((relative-name (f-no-ext (f-relative directory module-directory)))
-             (new-module-name (format "%s.%s" module-name
-                                      (dired-replace-in-string
-                                       "/" "." relative-name))))
-        (unless (loop for ignored-name in literate-org-ignored-dirs
-                      thereis (search ignored-name new-module-name))
-          (literate-org-new-org-section-for-a-module
-           new-module-name new-level
-           :title (or (f-ext relative-name) relative-name)
-           :path directory)
-          (literate-org-import :level new-level
-                               :module-name new-module-name
-                               :module-path directory))))))
+      (dolist (directory (f-directories module-directory))
+        (let* ((relative-name (f-no-ext (f-relative directory module-directory)))
+               (new-module-name (%build-module-name relative-name)))
+          (unless (or (find new-module-name excluded-modules :test #'string=)
+                      (loop for ignored-name in literate-org-ignored-dirs
+                            thereis (search ignored-name new-module-name)))
+            (literate-org-new-org-section-for-a-module
+             new-module-name new-level
+             :title (or (f-ext relative-name) relative-name)
+             :path directory)
+            (literate-org-import :level new-level
+                                 :module-name new-module-name
+                                 :module-path directory)))))))
 #+END_SRC
 
 ***** import a file
