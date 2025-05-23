@@ -1658,26 +1658,38 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
                                     module-name module-path)
   "Import source codes from a directory to an org file."
   (interactive "")
-  (let* ((module-name (or module-name
-                          (or (org-entry-get (point) "LITERATE_ORG_MODULE" t)
-                              (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE" t))))
-         
-         (root-path (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE_PATH" t))
-         (module-path (or module-path
-                          (when root-path
-                            (if module-name
-                              (concat root-path "/"
-                                      (dired-replace-in-string
-                                       "\\." "/" module-name))
-                              root-path)))))
-    (if (f-directory? module-path)
-      (literate-org-import-directory module-name module-path)
-      (literate-org-import-file module-name module-path))
-    (message "Finished importing module %s from %s" module-name module-path)))
+  (let* ((module-names (or (ensure-list module-name)
+                           (aand (or (org-entry-get (point) "LITERATE_ORG_MODULE" t)
+                                     (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE" t))
+                                 (split-string it))
+                           ;; for all modules in `LITERATE_ORG_ROOT_MODULE'
+                           (list nil)))
+         (root-path (org-entry-get (point) "LITERATE_ORG_ROOT_MODULE_PATH" t)))
+    (dolist (module-name module-names)
+      (let ((module-path (or module-path
+                             (when root-path
+                               (if module-name
+                                 (concat root-path "/"
+                                         (dired-replace-in-string
+                                          "\\." "/" module-name))
+                                 root-path)))))
+        (if (f-directory? module-path)
+          ;; if there are multiple module-names, then we need to create a new org header for each of them.
+          ;; it usually happens in global org property `LITERATE_ORG_ROOT_MODULE'.
+          (if (> (length module-names) 1)
+            (let ((new-level (1+ level)))
+              (literate-org-new-org-section-for-a-module
+               module-name new-level
+               :title module-name
+               :path module-path)
+              (literate-org-import-directory module-name module-path :level new-level))
+            (literate-org-import-directory module-name module-path))
+          (literate-org-import-file module-name module-path))
+        (message "Finished importing module %s from %s" module-name module-path)))))
 #+END_SRC
 ***** import a directory
 #+BEGIN_SRC elisp
-(defun literate-org-import-directory (module-name module-directory)
+(cl-defun literate-org-import-directory (module-name module-directory &key (level (or (org-current-level) 0)))
   (let* ((languages (or (aand (org-entry-get (point) "LITERATE_ORG_LANGUAGES" t)
                               (mapcar #'intern (split-string it)))
                         (aand (org-entry-get (point) "LITERATE_ORG_LANGUAGE" t)
