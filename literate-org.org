@@ -75,6 +75,7 @@
   - [[#setup-python-shell-eval-setup-code][setup python shell eval setup code]]
 - [[#utilities-1][Utilities]]
   - [[#clear-subtree][clear subtree]]
+  - [[#reload-file-or-modules][reload file or modules]]
   - [[#import-from-jupyter-notebook][import from jupyter notebook]]
     - [[#convert-markdown-to-org-syntax][convert markdown to org syntax]]
     - [[#parse-a-notebook-file][parse a notebook file]]
@@ -2447,6 +2448,18 @@ def __PYTHON_EL_eval(source, filename, module=None):
     (forward-line))
   (delete-region (region-beginning) (region-end)) ;; delete the rest
 )
+#+END_SRC
+
+** reload file or modules
+#+BEGIN_SRC elisp
+(defun literate-org-reload ()
+  "Reload the current org subtree by clearing and re-importing modules.
+This function clears the current subtree and then imports source files
+back into the org structure, effectively refreshing the literate org
+content from the underlying source files."
+  (interactive)
+  (literate-org-clear-subtree)
+  (literate-org-import))
 #+END_SRC
 
 ** import from jupyter notebook 
