@@ -76,6 +76,7 @@
 - [[#utilities-1][Utilities]]
   - [[#clear-subtree][clear subtree]]
   - [[#reload-file-or-modules][reload file or modules]]
+  - [[#tangle-current-section][tangle current section]]
   - [[#import-from-jupyter-notebook][import from jupyter notebook]]
     - [[#convert-markdown-to-org-syntax][convert markdown to org syntax]]
     - [[#parse-a-notebook-file][parse a notebook file]]
@@ -2437,6 +2438,9 @@ def __PYTHON_EL_eval(source, filename, module=None):
   )
 #+END_SRC
 * Utilities
+:PROPERTIES:
+:LITERATE_ORG_LANGUAGE: elisp
+:END:
 ** clear subtree
 #+BEGIN_SRC elisp
 (defun literate-org-clear-subtree ()
@@ -2460,6 +2464,29 @@ content from the underlying source files."
   (interactive)
   (literate-org-clear-subtree)
   (literate-org-import))
+#+END_SRC
+** tangle current section
+#+BEGIN_SRC elisp
+(defun literate-org-tangle-current-section ()
+    "Tangle all code blocks in the current section that have LITERATE_ORG_MODULE property."
+    (interactive)
+    (save-excursion
+      (save-restriction
+        ;; Narrow to current section
+        (org-narrow-to-subtree)
+
+        ;; Go to the beginning of the narrowed region
+        (goto-char (point-min))
+
+        ;; Loop through all LITERATE_ORG_MODULE properties in the section
+        (while (re-search-forward "^:LITERATE_ORG_MODULE:" nil t)
+          ;; Find the next code block
+          (when (re-search-forward "^#\\+BEGIN_SRC" nil t)
+            ;; Move point inside the code block
+            (forward-line 1)
+
+            ;; Tangle this code block
+            (literate-org-tangle-current-file))))))
 #+END_SRC
 
 ** import from jupyter notebook 
