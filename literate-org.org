@@ -1521,7 +1521,7 @@ we can parse the Python code and get the first function name.
 **** Configurations
 ***** ignored directories
 #+BEGIN_SRC elisp
-(defcustom literate-org-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea" ".venv" "venv" "node_modules")
+(defcustom literate-org-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea" ".venv" "node_modules")
   "The directories to be ignored when importing source files."
   :group 'literate-org)
 #+END_SRC
