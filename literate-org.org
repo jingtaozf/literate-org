@@ -1521,7 +1521,7 @@ we can parse the Python code and get the first function name.
 **** Configurations
 ***** ignored directories
 #+BEGIN_SRC elisp
-(defcustom literate-org-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea" ".venv" "node_modules")
+(defcustom literate-org-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea" ".venv" "__pycache__" "__marimo__" "node_modules")
   "The directories to be ignored when importing source files."
   :group 'literate-org)
 #+END_SRC
@@ -1760,7 +1760,8 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
   (message "literate importing module %s from file %s with language %s" module-name file language)
   (let* ((new-level (1+ level))
          (code-blocks-info
-           (with-current-buffer (find-file-noselect file)
+           (with-temp-buffer ;; To avoid running any hooks in original file, which may cause side effects.
+             (insert-file-contents file)
              (literate-org-get-code-blocks-in-current-buffer language module-name new-level)))
          (module-comment (car code-blocks-info))
          (module-title (when module-comment
