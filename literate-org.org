@@ -714,6 +714,239 @@ def test_optimal_clusters():
 
 #+END_SRC
 
+*** module reloader
+:PROPERTIES:
+:LITERATE_ORG_MODULE: literate_python.reloader
+:header-args: :tangle ./literate_python/reloader.py
+:END:
+**** Import statements
+#+BEGIN_SRC python
+import ast
+import sys
+import time
+import weakref
+from dataclasses import dataclass, field
+from typing import Dict, Set, List, Optional, Tuple
+import logging
+
+#+END_SRC
+**** Logger setup
+#+BEGIN_SRC python
+logger = logging.getLogger(__name__)
+
+#+END_SRC
+**** ImportData dataclass
+#+BEGIN_SRC python
+@dataclass
+class ImportData:
+    """Represents an import statement in a module."""
+    module: str           # Source module (e.g., "module_a")
+    definition: str       # Name in importing module (e.g., "func" or "alias_func")  
+    imported_symbol: Optional[str] = None  # Original symbol (e.g., "module_a.func")
+    is_alias: bool = False  # Whether it's imported with an alias
+    is_wildcard: bool = False  # Whether it's from module import *
+
+#+END_SRC
+**** ModuleInfo dataclass
+#+BEGIN_SRC python
+@dataclass
+class ModuleInfo:
+    """Information about a module and its dependencies."""
+    name: str
+    imports: List[ImportData] = field(default_factory=list)
+    imported_by: Set[str] = field(default_factory=set)  # Modules that import from this
+    last_modified: float = field(default_factory=time.time)
+    top_level_names: Set[str] = field(default_factory=set)
+
+#+END_SRC
+**** Extract imports from AST
+#+BEGIN_SRC python
+def extract_imports_from_code(code: str, module_name: str) -> List[ImportData]:
+    """Extract import statements from Python code."""
+    imports = []
+    try:
+        tree = ast.parse(code)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                # Handle: import module_a, module_b as b
+                for alias in node.names:
+                    imports.append(ImportData(
+                        module=alias.name,
+                        definition=alias.asname or alias.name,
+                        imported_symbol=None,
+                        is_alias=alias.asname is not None,
+                        is_wildcard=False
+                    ))
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:  # from module import ...
+                    for alias in node.names:
+                        if alias.name == '*':
+                            # from module import *
+                            imports.append(ImportData(
+                                module=node.module,
+                                definition='*',
+                                imported_symbol=None,
+                                is_alias=False,
+                                is_wildcard=True
+                            ))
+                        else:
+                            # from module import name [as alias]
+                            imports.append(ImportData(
+                                module=node.module,
+                                definition=alias.asname or alias.name,
+                                imported_symbol=f"{node.module}.{alias.name}",
+                                is_alias=alias.asname is not None,
+                                is_wildcard=False
+                            ))
+    except SyntaxError:
+        logger.warning(f"Failed to parse imports from code in module {module_name}")
+    return imports
+
+#+END_SRC
+**** ModuleReloader class
+#+BEGIN_SRC python
+class ModuleReloader:
+    """Manages module dependencies and hot reloading."""
+    
+    def __init__(self):
+        # Track module information
+        self.modules: Dict[str, ModuleInfo] = {}
+        # Track stale modules that need reloading
+        self.stale_modules: Set[str] = set()
+        # Object references for patching
+        self.old_objects: Dict[Tuple[str, str], List[weakref.ref]] = {}
+        
+    def register_module(self, module_name: str) -> ModuleInfo:
+        """Register a module if not already registered."""
+        if module_name not in self.modules:
+            self.modules[module_name] = ModuleInfo(name=module_name)
+        return self.modules[module_name]
+    
+    def track_module_execution(self, module_name: str, code: str, 
+                              top_level_names: Set[str]) -> Set[str]:
+        """Track when a module is executed and return affected modules."""
+        # Register this module
+        module_info = self.register_module(module_name)
+        
+        # Extract imports from the code
+        imports = extract_imports_from_code(code, module_name)
+        module_info.imports = imports
+        module_info.top_level_names = top_level_names
+        module_info.last_modified = time.time()
+        
+        # Update imported_by relationships
+        for import_data in imports:
+            if import_data.module in self.modules:
+                self.modules[import_data.module].imported_by.add(module_name)
+        
+        # Find modules that import from this module
+        affected_modules = self.find_dependent_modules(module_name)
+        
+        # Mark them as stale
+        self.stale_modules.update(affected_modules)
+        
+        return affected_modules
+    
+    def find_dependent_modules(self, module_name: str) -> Set[str]:
+        """Find all modules that depend on the given module."""
+        if module_name not in self.modules:
+            return set()
+        
+        dependent = set()
+        module_info = self.modules[module_name]
+        
+        # Direct dependencies
+        dependent.update(module_info.imported_by)
+        
+        # Transitive dependencies (modules that import the dependent modules)
+        to_check = list(dependent)
+        checked = {module_name}
+        
+        while to_check:
+            checking = to_check.pop()
+            if checking in checked:
+                continue
+            checked.add(checking)
+            
+            if checking in self.modules:
+                new_deps = self.modules[checking].imported_by
+                for dep in new_deps:
+                    if dep not in checked:
+                        dependent.add(dep)
+                        to_check.append(dep)
+        
+        return dependent
+    
+    def update_dependent_modules(self, source_module: str) -> Dict[str, List[str]]:
+        """Update symbols in modules that import from source_module."""
+        updates = {}
+        
+        if source_module not in sys.modules:
+            return updates
+        
+        source_mod = sys.modules[source_module]
+        module_info = self.modules.get(source_module)
+        
+        if not module_info:
+            return updates
+        
+        # For each module that imports from source_module
+        for dependent_module_name in module_info.imported_by:
+            if dependent_module_name not in sys.modules:
+                continue
+                
+            dependent_mod = sys.modules[dependent_module_name]
+            dependent_info = self.modules.get(dependent_module_name)
+            
+            if not dependent_info:
+                continue
+            
+            updated_names = []
+            
+            # Check each import in the dependent module
+            for import_data in dependent_info.imports:
+                if import_data.module != source_module:
+                    continue
+                
+                if import_data.is_wildcard:
+                    # Handle from module import *
+                    for name in module_info.top_level_names:
+                        if hasattr(source_mod, name):
+                            setattr(dependent_mod, name, getattr(source_mod, name))
+                            updated_names.append(name)
+                elif import_data.imported_symbol:
+                    # Handle from module import name [as alias]
+                    # Extract the actual name from imported_symbol
+                    parts = import_data.imported_symbol.split('.')
+                    if len(parts) > 1:
+                        actual_name = parts[-1]
+                        if hasattr(source_mod, actual_name):
+                            # Update with the correct name (definition is the alias or original)
+                            setattr(dependent_mod, import_data.definition, 
+                                   getattr(source_mod, actual_name))
+                            updated_names.append(import_data.definition)
+                else:
+                    # Handle import module [as alias]
+                    # Update the module reference itself
+                    setattr(dependent_mod, import_data.definition, source_mod)
+                    updated_names.append(import_data.definition)
+            
+            if updated_names:
+                updates[dependent_module_name] = updated_names
+        
+        return updates
+    
+    def clear_stale_modules(self):
+        """Clear the set of stale modules."""
+        self.stale_modules.clear()
+    
+    def get_import_info(self, module_name: str) -> List[ImportData]:
+        """Get import information for a module."""
+        if module_name in self.modules:
+            return self.modules[module_name].imports
+        return []
+
+#+END_SRC
 
 *** web server
 :PROPERTIES:
@@ -744,6 +977,7 @@ from literate_python.loader import (
 )
 
 from literate_python.inspector import _inspect
+from literate_python.reloader import ModuleReloader
 
 #+END_SRC
 **** Assignment logger
@@ -754,6 +988,12 @@ logger = logging.getLogger(__name__)
 **** Assignment app
 #+BEGIN_SRC python
 app = Flask(__name__)
+
+#+END_SRC
+**** Module reloader instance
+#+BEGIN_SRC python
+# Global module reloader instance
+module_reloader = ModuleReloader()
 
 #+END_SRC
 **** collect names in a code
@@ -833,6 +1073,8 @@ def process_a_message(message):
     error = None
     result = None
     locals = []
+    updated_modules = {}  # Track modules updated by hot reload
+    
     with redirect_stdout(stdout_stream):
         with redirect_stderr(stderr_stream):
             try:
@@ -852,7 +1094,10 @@ def process_a_message(message):
                 elif type == "exec":
                     result = exec(compile(code, module_name or "code", "exec"), dict)
                     vars_, funcs, classes = get_top_level_names(code)
-                    for local in vars_ + funcs + classes:
+                    all_top_level_names = set(vars_ + funcs + classes)
+                    
+                    # Original server_locals tracking
+                    for local in all_top_level_names:
                         if local in server_locals:
                             _local = server_locals[local]
                             if hasattr(_local, "__module__"):
@@ -861,6 +1106,20 @@ def process_a_message(message):
                                     # update the local with the new value
                                     server_locals[local] = getattr(module, local)
                                     locals.append(local)
+                    
+                    # Hot reload: Track module execution and update dependencies
+                    if module_name:
+                        # Track this module execution
+                        module_reloader.track_module_execution(
+                            module_name, code, all_top_level_names
+                        )
+                        
+                        # Update dependent modules
+                        updated_modules = module_reloader.update_dependent_modules(module_name)
+                        
+                        # Log what was updated
+                        if updated_modules:
+                            logger.debug(f"Hot reload updated modules: {updated_modules}")
 
                 elif type == "quit":
                     result = None
@@ -871,6 +1130,7 @@ def process_a_message(message):
                 # printing stack trace
                 traceback.print_exc()
                 error = str(e)
+                
     if error is None:
         return_value = {
             "result": _inspect(result),
@@ -879,6 +1139,10 @@ def process_a_message(message):
             "stdout": stdout_stream.getvalue(),
             "stderr": stderr_stream.getvalue(),
         }
+        # Add hot reload information if available
+        if updated_modules:
+            return_value["updated_modules"] = updated_modules
+            return_value["stale_modules"] = list(module_reloader.stale_modules)
     else:
         return_value = {
             "error": error,
@@ -993,6 +1257,354 @@ def run_server():
 #+BEGIN_SRC python
 def test1():
     print("Hello!")
+
+#+END_SRC
+*** test hot reload functionality
+:PROPERTIES:
+:LITERATE_ORG_MODULE: literate_python.tests.test_hot_reload
+:header-args: :tangle ./literate_python/tests/test_hot_reload.py
+:END:
+**** Import statements
+#+BEGIN_SRC python
+import sys
+import unittest
+from literate_python.reloader import ModuleReloader, extract_imports_from_code
+from literate_python.server import process_a_message
+
+#+END_SRC
+**** Test extract imports from code
+#+BEGIN_SRC python
+class TestExtractImports(unittest.TestCase):
+    """Test the import extraction functionality."""
+    
+    def test_simple_import(self):
+        """Test extraction of simple import statements."""
+        code = "import os"
+        imports = extract_imports_from_code(code, "test_module")
+        self.assertEqual(len(imports), 1)
+        self.assertEqual(imports[0].module, "os")
+        self.assertEqual(imports[0].definition, "os")
+        self.assertFalse(imports[0].is_alias)
+        
+    def test_import_with_alias(self):
+        """Test extraction of aliased imports."""
+        code = "import numpy as np"
+        imports = extract_imports_from_code(code, "test_module")
+        self.assertEqual(len(imports), 1)
+        self.assertEqual(imports[0].module, "numpy")
+        self.assertEqual(imports[0].definition, "np")
+        self.assertTrue(imports[0].is_alias)
+        
+    def test_from_import(self):
+        """Test extraction of from imports."""
+        code = "from math import sqrt, pi"
+        imports = extract_imports_from_code(code, "test_module")
+        self.assertEqual(len(imports), 2)
+        self.assertEqual(imports[0].module, "math")
+        self.assertEqual(imports[0].definition, "sqrt")
+        self.assertEqual(imports[0].imported_symbol, "math.sqrt")
+        
+    def test_from_import_with_alias(self):
+        """Test extraction of from imports with aliases."""
+        code = "from collections import defaultdict as dd"
+        imports = extract_imports_from_code(code, "test_module")
+        self.assertEqual(len(imports), 1)
+        self.assertEqual(imports[0].module, "collections")
+        self.assertEqual(imports[0].definition, "dd")
+        self.assertEqual(imports[0].imported_symbol, "collections.defaultdict")
+        self.assertTrue(imports[0].is_alias)
+        
+    def test_wildcard_import(self):
+        """Test extraction of wildcard imports."""
+        code = "from os import *"
+        imports = extract_imports_from_code(code, "test_module")
+        self.assertEqual(len(imports), 1)
+        self.assertEqual(imports[0].module, "os")
+        self.assertEqual(imports[0].definition, "*")
+        self.assertTrue(imports[0].is_wildcard)
+
+#+END_SRC
+**** Test ModuleReloader
+#+BEGIN_SRC python
+class TestModuleReloader(unittest.TestCase):
+    """Test the ModuleReloader class."""
+    
+    def setUp(self):
+        """Set up test environment."""
+        self.reloader = ModuleReloader()
+        # Clean up any test modules from sys.modules
+        for key in list(sys.modules.keys()):
+            if key.startswith("test_module"):
+                del sys.modules[key]
+                
+    def test_register_module(self):
+        """Test module registration."""
+        module_info = self.reloader.register_module("test_module_a")
+        self.assertEqual(module_info.name, "test_module_a")
+        self.assertIn("test_module_a", self.reloader.modules)
+        
+    def test_track_module_execution(self):
+        """Test tracking module execution with dependencies."""
+        # First, create module_a
+        code_a = """
+def func_a():
+    return 'a'
+x = 10
+"""
+        self.reloader.track_module_execution("module_a", code_a, {"func_a", "x"})
+        
+        # Create module_b that imports from module_a
+        code_b = """
+from module_a import func_a, x
+import module_a as ma
+
+def func_b():
+    return func_a() + str(x)
+"""
+        self.reloader.track_module_execution("module_b", code_b, {"func_b"})
+        
+        # module_b should have imports from module_a
+        module_b_info = self.reloader.modules["module_b"]
+        self.assertEqual(len(module_b_info.imports), 3)  # func_a, x, and ma
+        
+        # module_a should know that module_b imports from it
+        module_a_info = self.reloader.modules["module_a"]
+        self.assertIn("module_b", module_a_info.imported_by)
+        
+    def test_find_dependent_modules(self):
+        """Test finding dependent modules."""
+        # Set up a dependency chain: module_c -> module_b -> module_a
+        self.reloader.track_module_execution("module_a", "x = 1", {"x"})
+        self.reloader.track_module_execution("module_b", "from module_a import x", set())
+        self.reloader.track_module_execution("module_c", "from module_b import x", set())
+        
+        # Find modules dependent on module_a
+        dependents = self.reloader.find_dependent_modules("module_a")
+        self.assertIn("module_b", dependents)
+        self.assertIn("module_c", dependents)  # Transitive dependency
+        
+    def test_update_dependent_modules_with_alias(self):
+        """Test updating dependent modules with aliased imports."""
+        # Create actual modules in sys.modules
+        import types
+        
+        # Create module_a
+        module_a = types.ModuleType("module_a")
+        module_a.original_func = lambda: "original"
+        module_a.value = 100
+        sys.modules["module_a"] = module_a
+        
+        # Track module_a
+        self.reloader.track_module_execution("module_a", "", {"original_func", "value"})
+        
+        # Create module_b that imports with alias
+        module_b = types.ModuleType("module_b")
+        module_b.my_func = module_a.original_func  # Simulating: from module_a import original_func as my_func
+        module_b.my_value = module_a.value  # Simulating: from module_a import value as my_value
+        sys.modules["module_b"] = module_b
+        
+        # Track module_b with aliased imports
+        code_b = """
+from module_a import original_func as my_func
+from module_a import value as my_value
+"""
+        self.reloader.track_module_execution("module_b", code_b, set())
+        
+        # Now update module_a
+        module_a.original_func = lambda: "updated"
+        module_a.value = 200
+        
+        # Update dependent modules
+        updates = self.reloader.update_dependent_modules("module_a")
+        
+        # Check that module_b was updated
+        self.assertIn("module_b", updates)
+        self.assertIn("my_func", updates["module_b"])
+        self.assertIn("my_value", updates["module_b"])
+        
+        # Verify the actual updates
+        self.assertEqual(module_b.my_func(), "updated")
+        self.assertEqual(module_b.my_value, 200)
+        
+    def tearDown(self):
+        """Clean up after tests."""
+        # Remove test modules from sys.modules
+        for key in list(sys.modules.keys()):
+            if key.startswith("test_module") or key.startswith("module_"):
+                del sys.modules[key]
+
+#+END_SRC
+**** Test integration with process_a_message
+#+BEGIN_SRC python
+class TestProcessMessageIntegration(unittest.TestCase):
+    """Test hot reload integration with process_a_message."""
+    
+    def setUp(self):
+        """Set up test environment."""
+        # Clean up test modules
+        for key in list(sys.modules.keys()):
+            if key.startswith("test_"):
+                del sys.modules[key]
+                
+    def test_exec_with_hot_reload(self):
+        """Test that exec messages trigger hot reload."""
+        # First, create module_x
+        message1 = {
+            "type": "exec",
+            "module": "test_module_x",
+            "module-create-method": "create",
+            "code": """
+def helper():
+    return 42
+
+VALUE = 100
+"""
+        }
+        result1 = process_a_message(message1)
+        self.assertEqual(result1["type"], "result")
+        
+        # Create module_y that imports from module_x
+        message2 = {
+            "type": "exec",
+            "module": "test_module_y",
+            "module-create-method": "create",
+            "code": """
+from test_module_x import helper, VALUE
+
+def use_helper():
+    return helper() + VALUE
+"""
+        }
+        result2 = process_a_message(message2)
+        self.assertEqual(result2["type"], "result")
+        
+        # Verify initial state
+        import test_module_y
+        self.assertEqual(test_module_y.use_helper(), 142)
+        
+        # Update module_x
+        message3 = {
+            "type": "exec",
+            "module": "test_module_x",
+            "code": """
+def helper():
+    return 99
+
+VALUE = 200
+"""
+        }
+        result3 = process_a_message(message3)
+        self.assertEqual(result3["type"], "result")
+        
+        # Check that hot reload information is present
+        self.assertIn("updated_modules", result3)
+        self.assertIn("test_module_y", result3["updated_modules"])
+        
+        # Verify that module_y was updated
+        self.assertEqual(test_module_y.helper(), 99)
+        self.assertEqual(test_module_y.VALUE, 200)
+        self.assertEqual(test_module_y.use_helper(), 299)
+        
+    def test_exec_with_import_alias(self):
+        """Test hot reload with import aliases."""
+        # Create module_lib
+        message1 = {
+            "type": "exec",
+            "module": "test_lib",
+            "module-create-method": "create",
+            "code": """
+class Calculator:
+    def add(self, a, b):
+        return a + b
+        
+def compute():
+    return 'v1'
+"""
+        }
+        result1 = process_a_message(message1)
+        self.assertEqual(result1["type"], "result")
+        
+        # Create module_app with aliased imports
+        message2 = {
+            "type": "exec",
+            "module": "test_app",
+            "module-create-method": "create",
+            "code": """
+from test_lib import Calculator as Calc
+from test_lib import compute as calc_func
+
+my_calc = Calc()
+result = calc_func()
+"""
+        }
+        result2 = process_a_message(message2)
+        self.assertEqual(result2["type"], "result")
+        
+        # Verify initial state
+        import test_app
+        self.assertEqual(test_app.result, 'v1')
+        self.assertEqual(test_app.my_calc.add(1, 2), 3)
+        
+        # Update test_lib
+        message3 = {
+            "type": "exec",
+            "module": "test_lib",
+            "code": """
+class Calculator:
+    def add(self, a, b):
+        return (a + b) * 10  # Changed behavior
+        
+def compute():
+    return 'v2'  # Changed return value
+"""
+        }
+        result3 = process_a_message(message3)
+        
+        # Check hot reload occurred
+        self.assertIn("updated_modules", result3)
+        self.assertIn("test_app", result3["updated_modules"])
+        
+        # Verify aliased names were updated
+        self.assertIn("Calc", result3["updated_modules"]["test_app"])
+        self.assertIn("calc_func", result3["updated_modules"]["test_app"])
+        
+        # Create new instance with updated class
+        new_calc = test_app.Calc()
+        self.assertEqual(new_calc.add(1, 2), 30)
+        
+        # Verify function alias was updated
+        self.assertEqual(test_app.calc_func(), 'v2')
+        
+    def tearDown(self):
+        """Clean up after tests."""
+        # Remove test modules
+        for key in list(sys.modules.keys()):
+            if key.startswith("test_"):
+                del sys.modules[key]
+
+#+END_SRC
+**** Run all tests
+#+BEGIN_SRC python
+def run_all_tests():
+    """Run all hot reload tests."""
+    loader = unittest.TestLoader()
+    suite = unittest.TestSuite()
+    
+    # Add all test classes
+    suite.addTests(loader.loadTestsFromTestCase(TestExtractImports))
+    suite.addTests(loader.loadTestsFromTestCase(TestModuleReloader))
+    suite.addTests(loader.loadTestsFromTestCase(TestProcessMessageIntegration))
+    
+    # Run tests
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    
+    # Return success status
+    return result.wasSuccessful()
+
+if __name__ == "__main__":
+    success = run_all_tests()
+    sys.exit(0 if success else 1)
 
 #+END_SRC
 

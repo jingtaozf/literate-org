@@ -20,10 +20,14 @@ from literate_python.loader import (
 )
 
 from literate_python.inspector import _inspect
+from literate_python.reloader import ModuleReloader
 
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# Global module reloader instance
+module_reloader = ModuleReloader()
 
 
 def get_top_level_names(code):
@@ -92,6 +96,8 @@ def process_a_message(message):
     error = None
     result = None
     locals = []
+    updated_modules = {}  # Track modules updated by hot reload
+
     with redirect_stdout(stdout_stream):
         with redirect_stderr(stderr_stream):
             try:
@@ -111,7 +117,10 @@ def process_a_message(message):
                 elif type == "exec":
                     result = exec(compile(code, module_name or "code", "exec"), dict)
                     vars_, funcs, classes = get_top_level_names(code)
-                    for local in vars_ + funcs + classes:
+                    all_top_level_names = set(vars_ + funcs + classes)
+
+                    # Original server_locals tracking
+                    for local in all_top_level_names:
                         if local in server_locals:
                             _local = server_locals[local]
                             if hasattr(_local, "__module__"):
@@ -120,6 +129,24 @@ def process_a_message(message):
                                     # update the local with the new value
                                     server_locals[local] = getattr(module, local)
                                     locals.append(local)
+
+                    # Hot reload: Track module execution and update dependencies
+                    if module_name:
+                        # Track this module execution
+                        module_reloader.track_module_execution(
+                            module_name, code, all_top_level_names
+                        )
+
+                        # Update dependent modules
+                        updated_modules = module_reloader.update_dependent_modules(
+                            module_name
+                        )
+
+                        # Log what was updated
+                        if updated_modules:
+                            logger.debug(
+                                f"Hot reload updated modules: {updated_modules}"
+                            )
 
                 elif type == "quit":
                     result = None
@@ -130,6 +157,7 @@ def process_a_message(message):
                 # printing stack trace
                 traceback.print_exc()
                 error = str(e)
+
     if error is None:
         return_value = {
             "result": _inspect(result),
@@ -138,6 +166,10 @@ def process_a_message(message):
             "stdout": stdout_stream.getvalue(),
             "stderr": stderr_stream.getvalue(),
         }
+        # Add hot reload information if available
+        if updated_modules:
+            return_value["updated_modules"] = updated_modules
+            return_value["stale_modules"] = list(module_reloader.stale_modules)
     else:
         return_value = {
             "error": error,

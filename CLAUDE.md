@@ -381,3 +381,4 @@ Most Emacs Lisp code blocks use these properties:
 - Test files are organized within the literate structure
 - Example: `literate_python.tests.test_server` section contains server tests
 - Tests can be run using standard pytest: `poetry run python -m pytest literate_python/tests/`
+- never use relative import in python code
