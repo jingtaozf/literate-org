@@ -32,9 +32,11 @@
     - [[#__main__][__main__]]
     - [[#literate-module-loader][literate module loader]]
     - [[#build-hierarchical-code-structure][build hierarchical code structure]]
+    - [[#module-reloader][module reloader]]
     - [[#web-server][web server]]
   - [[#tests][Tests]]
     - [[#test-update-locals-in-marimo-notebook-automatically][test update locals in marimo notebook automatically]]
+    - [[#test-hot-reload-functionality][test hot reload functionality]]
 - [[#emacs-library-for-python-literate-server][Emacs library for python literate server]]
   - [[#import-required-elisp-libraries][Import required elisp libraries]]
   - [[#utilities][Utilities]]
@@ -48,6 +50,7 @@
     - [[#get-top-level-python-code][get top level python code]]
     - [[#get-the-module-name-for-a-file-name][get the module name for a file name]]
     - [[#load-python-code-to-current-module][load python code to current module]]
+    - [[#execute-python-code-in-python-file][execute python code in python file]]
     - [[#a-cache-db][a cache db]]
 - [[#python-inspector-for-emacs][Python inspector for Emacs]]
     - [[#import-required-packages][Import required packages]]
@@ -1711,28 +1714,32 @@ override our own compilation report.
 #+BEGIN_SRC elisp
 (defun literate-org-execute-current-code-block ()
   (interactive)
-  (let* ((context-info (second (org-element-context)))
-         (block-arguments (third (org-babel-get-src-block-info)))
-         (info (org-babel-get-src-block-info))
-         (body (nth 1 info))
-         (code (plist-get context-info :value))
-         (type (intern (or (org-entry-get (point) "LITERATE_ORG_EXECUTE_TYPE" t)
-                           ":exec")))
-         (module-create-method (or (org-entry-get (point) "LITERATE_ORG_MODULE_CREATE_METHOD" t)
-                                   "import_or_create"))
-         (module-name (org-entry-get (point) "LITERATE_ORG_MODULE" t))
-         (resp (literate-org-remote-execute-code code :type type :module module-name :module-create-method module-create-method)))
-    (with-current-buffer (get-buffer-create "*literate-org-stdout*")
-      (awhen (cdr (assoc 'stdout resp))
-        (goto-char (point-max))
-        (insert "\n" it "\n")))
-    (if (equal type :exec)
-      (message "Executed code block in module %s, updated locals %s"
-               module-name (cdr (assoc 'locals resp)))
-      (let ((json-encoding-pretty-print t))
-        (when (not (equal "none" (cdr (assoc :results block-arguments))))
-          (org-babel-insert-result (json-encode (cdr (assoc 'result resp))) '("replace")))
-        (message "Evaluated code block in module %s:\n%s" module-name (cdr (assoc 'result resp)))))))
+  ;; Check if we're in a Python file and delegate to the Python-specific function
+  (if (derived-mode-p 'python-mode 'python-ts-mode)
+      (literate-org-execute-python-code)
+    ;; Original org-mode code block execution
+    (let* ((context-info (second (org-element-context)))
+           (block-arguments (third (org-babel-get-src-block-info)))
+           (info (org-babel-get-src-block-info))
+           (body (nth 1 info))
+           (code (plist-get context-info :value))
+           (type (intern (or (org-entry-get (point) "LITERATE_ORG_EXECUTE_TYPE" t)
+                             ":exec")))
+           (module-create-method (or (org-entry-get (point) "LITERATE_ORG_MODULE_CREATE_METHOD" t)
+                                     "import_or_create"))
+           (module-name (org-entry-get (point) "LITERATE_ORG_MODULE" t))
+           (resp (literate-org-remote-execute-code code :type type :module module-name :module-create-method module-create-method)))
+      (with-current-buffer (get-buffer-create "*literate-org-stdout*")
+        (awhen (cdr (assoc 'stdout resp))
+          (goto-char (point-max))
+          (insert "\n" it "\n")))
+      (if (equal type :exec)
+        (message "Executed code block in module %s, updated locals %s"
+                 module-name (cdr (assoc 'locals resp)))
+        (let ((json-encoding-pretty-print t))
+          (when (not (equal "none" (cdr (assoc :results block-arguments))))
+            (org-babel-insert-result (json-encode (cdr (assoc 'result resp))) '("replace")))
+          (message "Evaluated code block in module %s:\n%s" module-name (cdr (assoc 'result resp))))))))
 #+END_SRC
 *** get top level python code
 #+BEGIN_SRC elisp
@@ -1783,6 +1790,52 @@ override our own compilation report.
 
     (literate-org-remote-execute-code code :type :exec :module module-name :module-create-method module-create-method)
     (message "Loaded %s[%s:%s] in module %s" (treesit-node-type node) begin end module-name)))
+#+END_SRC
+*** execute python code in python file
+#+BEGIN_SRC elisp
+(defun literate-org-execute-python-code ()
+  "Execute current top level Python code or selected Python code in a Python file.
+If there is an active region, execute the selected code.
+Otherwise, execute the current top-level Python construct at point."
+  (interactive)
+  (let* ((code (if (use-region-p)
+                 (buffer-substring-no-properties (region-beginning) (region-end))
+                 (let* ((node (literate-org-get-top-level-node-at-point))
+                        (begin (treesit-node-start node))
+                        (end (treesit-node-end node)))
+                   (buffer-substring-no-properties begin end))))
+         (file (buffer-file-name))
+         (module-name (literate-org-module-name-from-file-name file))
+         (module-create-method "import_or_create")
+         (node (literate-org-get-top-level-node-at-point))
+         (code-desc (if (use-region-p) 
+                      "selected code" 
+                      (format "%s[%s:%s]"  
+                              (treesit-node-type node)
+                              (treesit-node-start node)
+                              (treesit-node-end node)
+                              ;;(literate-org-node-name 'python (treesit-node-type node) node)
+                              ))))
+    
+    ;; Clean up module name (remove leading dots if present)
+    (let ((prefix-dot-count 0))
+      (while (and (< prefix-dot-count (length module-name))
+                  (eq ?. (aref module-name prefix-dot-count)))
+        (incf prefix-dot-count))
+      (let ((index prefix-dot-count))
+        (while (> prefix-dot-count 1)
+          (setf index (1+ (position ?. module-name :start index)))
+          (decf prefix-dot-count))
+        (when (> index 0)
+          (setf module-name (substring module-name index)))))
+    
+    (let ((resp (literate-org-remote-execute-code code :type :exec :module module-name :module-create-method module-create-method)))
+      (with-current-buffer (get-buffer-create "*literate-org-stdout*")
+        (awhen (cdr (assoc 'stdout resp))
+          (goto-char (point-max))
+          (insert "\n" it "\n")))
+      (message "Executed %s in module %s, updated locals %s"
+               code-desc module-name (cdr (assoc 'locals resp))))))
 #+END_SRC
 *** a cache db
 **** get db
