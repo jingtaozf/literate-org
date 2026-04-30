@@ -91,6 +91,7 @@ def ensure_module(module_name, module_create_method):
 
 
 def process_a_message(message):
+    # # Capture buffers and the slots that will hold the response.
     stdout_stream = StringIO()
     stderr_stream = StringIO()
     error = None
@@ -98,6 +99,7 @@ def process_a_message(message):
     locals = []
     updated_modules = {}  # Track modules updated by hot reload
 
+    # # Inside stdout/stderr capture, parse the message and resolve the target module's namespace dict.
     with redirect_stdout(stdout_stream):
         with redirect_stderr(stderr_stream):
             try:
@@ -110,6 +112,7 @@ def process_a_message(message):
                     module = ensure_module(module_name, module_create_method)
                     dict = module.__dict__
 
+                # # Dispatch on request type — `eval` and `exec` both run user code in the module namespace; only `exec` then resyncs server_locals to reflect any rebinding.
                 if type == "eval":
                     exec(compile(code, module_name or "code", "exec"), dict)
                     message.get("result-name", "_")
@@ -130,6 +133,7 @@ def process_a_message(message):
                                     server_locals[local] = getattr(module, local)
                                     locals.append(local)
 
+                    # # Hot reload: track this module's execution and propagate new bindings to every module that imported it.
                     # Hot reload: Track module execution and update dependencies
                     if module_name:
                         # Track this module execution
@@ -148,6 +152,7 @@ def process_a_message(message):
                                 f"Hot reload updated modules: {updated_modules}"
                             )
 
+                # # Other request shapes — `quit` clears the result; anything else is an error we re-raise.
                 elif type == "quit":
                     result = None
                 else:
@@ -158,6 +163,7 @@ def process_a_message(message):
                 traceback.print_exc()
                 error = str(e)
 
+    # # Build the response payload (success or error shape) and exit the process if `quit` was requested.
     if error is None:
         return_value = {
             "result": _inspect(result),

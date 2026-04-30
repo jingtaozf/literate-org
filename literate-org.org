@@ -713,6 +713,7 @@ def optimal_clusters(definitions, embeddings, min_k=2, max_k=10, threshold=0.05)
         scores: A dictionary mapping k to its silhouette score.
     """
     scores = {}
+    # # Cap k at sample count and short-circuit the trivial "too few samples" case.
     # Limit max_k to the number of samples
     max_k = min(max_k, len(embeddings))
 
@@ -723,6 +724,7 @@ def optimal_clusters(definitions, embeddings, min_k=2, max_k=10, threshold=0.05)
     best_k = None
     best_score = -1
 
+    # # Sweep k = min_k..max_k by silhouette score; ties within `threshold` favour the larger k.
     # Evaluate silhouette scores for each candidate k.
     for k in range(min_k, max_k + 1):
         kmeans = KMeans(n_clusters=k, random_state=42)
@@ -748,10 +750,12 @@ def optimal_clusters(definitions, embeddings, min_k=2, max_k=10, threshold=0.05)
     optimal_k = best_k
     print(f"\nOptimal number of clusters chosen: {optimal_k}")
 
+    # # Re-run KMeans once more with the chosen k to get the final label assignments.
     # Run final clustering with the optimal number of clusters.
     final_kmeans = KMeans(n_clusters=optimal_k, random_state=42)
     final_labels = final_kmeans.fit_predict(embeddings)
 
+    # # Group input definitions by their final cluster label and return the mapping.
     # Group definitions by cluster.
     clusters = {}
     for label, definition in zip(final_labels, definitions):
@@ -845,9 +849,11 @@ class ModuleInfo:
 def extract_imports_from_code(code: str, module_name: str) -> List[ImportData]:
     """Extract import statements from Python code."""
     imports = []
+    # # Walk the AST; bail to an empty list on parse failure.
     try:
         tree = ast.parse(code)
         for node in ast.walk(tree):
+            # # Plain `import X` / `import X as Y` — one entry per name in the import list.
             if isinstance(node, ast.Import):
                 # Handle: import module_a, module_b as b
                 for alias in node.names:
@@ -858,6 +864,7 @@ def extract_imports_from_code(code: str, module_name: str) -> List[ImportData]:
                         is_alias=alias.asname is not None,
                         is_wildcard=False
                     ))
+            # # `from X import ...` — split the wildcard case from the named-symbol case.
             elif isinstance(node, ast.ImportFrom):
                 if node.module:  # from module import ...
                     for alias in node.names:
@@ -879,6 +886,7 @@ def extract_imports_from_code(code: str, module_name: str) -> List[ImportData]:
                                 is_alias=alias.asname is not None,
                                 is_wildcard=False
                             ))
+    # # Syntax-broken code is logged and treated as "no imports".
     except SyntaxError:
         logger.warning(f"Failed to parse imports from code in module {module_name}")
     return imports
@@ -961,34 +969,35 @@ class ModuleReloader:
     def update_dependent_modules(self, source_module: str) -> Dict[str, List[str]]:
         """Update symbols in modules that import from source_module."""
         updates = {}
-        
+
+        # # Bail unless the source module is loaded *and* tracked by the reloader.
         if source_module not in sys.modules:
             return updates
-        
+
         source_mod = sys.modules[source_module]
         module_info = self.modules.get(source_module)
-        
+
         if not module_info:
             return updates
-        
-        # For each module that imports from source_module
+
+        # # For every module that imports from `source_module`, find its tracked metadata or skip.
         for dependent_module_name in module_info.imported_by:
             if dependent_module_name not in sys.modules:
                 continue
-                
+
             dependent_mod = sys.modules[dependent_module_name]
             dependent_info = self.modules.get(dependent_module_name)
-            
+
             if not dependent_info:
                 continue
-            
+
             updated_names = []
-            
-            # Check each import in the dependent module
+
+            # # Walk that module's imports and dispatch on the import shape: wildcard / named / module-only.
             for import_data in dependent_info.imports:
                 if import_data.module != source_module:
                     continue
-                
+
                 if import_data.is_wildcard:
                     # Handle from module import *
                     for name in module_info.top_level_names:
@@ -1003,7 +1012,7 @@ class ModuleReloader:
                         actual_name = parts[-1]
                         if hasattr(source_mod, actual_name):
                             # Update with the correct name (definition is the alias or original)
-                            setattr(dependent_mod, import_data.definition, 
+                            setattr(dependent_mod, import_data.definition,
                                    getattr(source_mod, actual_name))
                             updated_names.append(import_data.definition)
                 else:
@@ -1011,10 +1020,11 @@ class ModuleReloader:
                     # Update the module reference itself
                     setattr(dependent_mod, import_data.definition, source_mod)
                     updated_names.append(import_data.definition)
-            
+
+            # # Record the rebound names per dependent module and return the full map.
             if updated_names:
                 updates[dependent_module_name] = updated_names
-        
+
         return updates
     
     def clear_stale_modules(self):
@@ -1151,13 +1161,15 @@ def ensure_module(module_name, module_create_method):
 **** Function process_a_message
 #+BEGIN_SRC python
 def process_a_message(message):
+    # # Capture buffers and the slots that will hold the response.
     stdout_stream = StringIO()
     stderr_stream = StringIO()
     error = None
     result = None
     locals = []
     updated_modules = {}  # Track modules updated by hot reload
-    
+
+    # # Inside stdout/stderr capture, parse the message and resolve the target module's namespace dict.
     with redirect_stdout(stdout_stream):
         with redirect_stderr(stderr_stream):
             try:
@@ -1170,6 +1182,7 @@ def process_a_message(message):
                     module = ensure_module(module_name, module_create_method)
                     dict = module.__dict__
 
+                # # Dispatch on request type — `eval` and `exec` both run user code in the module namespace; only `exec` then resyncs server_locals to reflect any rebinding.
                 if type == "eval":
                     exec(compile(code, module_name or "code", "exec"), dict)
                     message.get("result-name", "_")
@@ -1178,7 +1191,7 @@ def process_a_message(message):
                     result = exec(compile(code, module_name or "code", "exec"), dict)
                     vars_, funcs, classes = get_top_level_names(code)
                     all_top_level_names = set(vars_ + funcs + classes)
-                    
+
                     # Original server_locals tracking
                     for local in all_top_level_names:
                         if local in server_locals:
@@ -1189,7 +1202,8 @@ def process_a_message(message):
                                     # update the local with the new value
                                     server_locals[local] = getattr(module, local)
                                     locals.append(local)
-                    
+
+                    # # Hot reload: track this module's execution and propagate new bindings to every module that imported it.
                     # Hot reload: Track module execution and update dependencies
                     if module_name:
                         # Track this module execution
@@ -1204,6 +1218,7 @@ def process_a_message(message):
                         if updated_modules:
                             logger.debug(f"Hot reload updated modules: {updated_modules}")
 
+                # # Other request shapes — `quit` clears the result; anything else is an error we re-raise.
                 elif type == "quit":
                     result = None
                 else:
@@ -1213,7 +1228,8 @@ def process_a_message(message):
                 # printing stack trace
                 traceback.print_exc()
                 error = str(e)
-                
+
+    # # Build the response payload (success or error shape) and exit the process if `quit` was requested.
     if error is None:
         return_value = {
             "result": _inspect(result),
@@ -1470,43 +1486,47 @@ def func_b():
         
     def test_update_dependent_modules_with_alias(self):
         """Test updating dependent modules with aliased imports."""
+        # # Arrange: source module_a with a function and a constant, registered with the reloader.
         # Create actual modules in sys.modules
         import types
-        
+
         # Create module_a
         module_a = types.ModuleType("module_a")
         module_a.original_func = lambda: "original"
         module_a.value = 100
         sys.modules["module_a"] = module_a
-        
+
         # Track module_a
         self.reloader.track_module_execution("module_a", "", {"original_func", "value"})
-        
+
+        # # Arrange: dependent module_b that imports both names from module_a under different aliases.
         # Create module_b that imports with alias
         module_b = types.ModuleType("module_b")
         module_b.my_func = module_a.original_func  # Simulating: from module_a import original_func as my_func
         module_b.my_value = module_a.value  # Simulating: from module_a import value as my_value
         sys.modules["module_b"] = module_b
-        
+
         # Track module_b with aliased imports
         code_b = """
 from module_a import original_func as my_func
 from module_a import value as my_value
 """
         self.reloader.track_module_execution("module_b", code_b, set())
-        
+
+        # # Act: rebind both names in module_a, then ask the reloader to propagate.
         # Now update module_a
         module_a.original_func = lambda: "updated"
         module_a.value = 200
-        
+
         # Update dependent modules
         updates = self.reloader.update_dependent_modules("module_a")
-        
+
+        # # Assert: the alias-side names in module_b reflect the new bindings.
         # Check that module_b was updated
         self.assertIn("module_b", updates)
         self.assertIn("my_func", updates["module_b"])
         self.assertIn("my_value", updates["module_b"])
-        
+
         # Verify the actual updates
         self.assertEqual(module_b.my_func(), "updated")
         self.assertEqual(module_b.my_value, 200)
@@ -1533,6 +1553,7 @@ class TestProcessMessageIntegration(unittest.TestCase):
                 
     def test_exec_with_hot_reload(self):
         """Test that exec messages trigger hot reload."""
+        # # Arrange — define `test_module_x` with helper() and VALUE via the exec entry point.
         # First, create module_x
         message1 = {
             "type": "exec",
@@ -1547,7 +1568,8 @@ VALUE = 100
         }
         result1 = process_a_message(message1)
         self.assertEqual(result1["type"], "result")
-        
+
+        # # Arrange — define `test_module_y` that imports both names from x and combines them in use_helper().
         # Create module_y that imports from module_x
         message2 = {
             "type": "exec",
@@ -1562,11 +1584,12 @@ def use_helper():
         }
         result2 = process_a_message(message2)
         self.assertEqual(result2["type"], "result")
-        
+
+        # # Verify initial state, then act — re-exec test_module_x with new bindings to trigger hot reload.
         # Verify initial state
         import test_module_y
         self.assertEqual(test_module_y.use_helper(), 142)
-        
+
         # Update module_x
         message3 = {
             "type": "exec",
@@ -1580,11 +1603,12 @@ VALUE = 200
         }
         result3 = process_a_message(message3)
         self.assertEqual(result3["type"], "result")
-        
+
+        # # Assert — the response carries hot-reload metadata and module_y now reflects the new bindings.
         # Check that hot reload information is present
         self.assertIn("updated_modules", result3)
         self.assertIn("test_module_y", result3["updated_modules"])
-        
+
         # Verify that module_y was updated
         self.assertEqual(test_module_y.helper(), 99)
         self.assertEqual(test_module_y.VALUE, 200)
@@ -1592,6 +1616,7 @@ VALUE = 200
         
     def test_exec_with_import_alias(self):
         """Test hot reload with import aliases."""
+        # # Arrange — define test_lib with a Calculator class and a compute() function via exec.
         # Create module_lib
         message1 = {
             "type": "exec",
@@ -1608,7 +1633,8 @@ def compute():
         }
         result1 = process_a_message(message1)
         self.assertEqual(result1["type"], "result")
-        
+
+        # # Arrange — define test_app that imports Calculator as Calc and compute as calc_func, exercising both alias forms.
         # Create module_app with aliased imports
         message2 = {
             "type": "exec",
@@ -1624,12 +1650,13 @@ result = calc_func()
         }
         result2 = process_a_message(message2)
         self.assertEqual(result2["type"], "result")
-        
+
+        # # Verify the pre-update behaviour, then act — re-exec test_lib with new Calculator behaviour and a new compute() return.
         # Verify initial state
         import test_app
         self.assertEqual(test_app.result, 'v1')
         self.assertEqual(test_app.my_calc.add(1, 2), 3)
-        
+
         # Update test_lib
         message3 = {
             "type": "exec",
@@ -1644,19 +1671,20 @@ def compute():
 """
         }
         result3 = process_a_message(message3)
-        
+
+        # # Assert — both aliased names appear in the hot-reload report and resolve to the new Calculator / compute behaviour.
         # Check hot reload occurred
         self.assertIn("updated_modules", result3)
         self.assertIn("test_app", result3["updated_modules"])
-        
+
         # Verify aliased names were updated
         self.assertIn("Calc", result3["updated_modules"]["test_app"])
         self.assertIn("calc_func", result3["updated_modules"]["test_app"])
-        
+
         # Create new instance with updated class
         new_calc = test_app.Calc()
         self.assertEqual(new_calc.add(1, 2), 30)
-        
+
         # Verify function alias was updated
         self.assertEqual(test_app.calc_func(), 'v2')
         
@@ -1709,7 +1737,13 @@ if __name__ == "__main__":
 (require 'llm-prompt)
 #+END_SRC
 
-** Utilities
+** Server connection helpers
+
+The two helpers in this section are the *only* I/O surface between
+Emacs and the running Python literate-server. Keeping them grouped
+makes the boundary easy to find and easy to swap (HTTP today; could
+become a socket or stdio bridge later).
+
 *** connect to a literate server
 #+BEGIN_SRC elisp
 (defun literate-org-connect ()
@@ -2311,7 +2345,13 @@ we can parse the Python code and get the first function name.
   (:documentation "Get the code blocks in a file."))
 
 #+END_SRC
-**** Utilities
+**** Tree-sitter parse helpers
+
+A thin language-agnostic wrapper around =treesit-parser-create=. The
+caller passes the language symbol and gets back a parse tree rooted
+at the buffer; everything else in this module dispatches off that
+tree.
+
 ***** the parse tree for current file
 #+BEGIN_SRC elisp
 (cl-defun literate-org-parse-tree-for-current-file (language)
@@ -3185,10 +3225,18 @@ def __PYTHON_EL_eval(source, filename, module=None):
         sys.excepthook(t, v, tb.tb_next)")
   )
 #+END_SRC
-* Utilities
+* Org buffer maintenance
 :PROPERTIES:
 :LITERATE_ORG_LANGUAGE: elisp
 :END:
+
+Three commands that operate on the *current org buffer itself* — not
+on tangled output, not on remote modules. They cover the three things
+authors most often need to do mid-edit: wipe a stale subtree
+(=clear-subtree=), reload module bindings after retangling
+(=reload=), and tangle just the section under point (=tangle current
+section=) without re-tangling the whole 3000-line file.
+
 ** clear subtree
 #+BEGIN_SRC elisp
 (defun literate-org-clear-subtree ()
@@ -3237,12 +3285,19 @@ content from the underlying source files."
             (literate-org-tangle-current-file))))))
 #+END_SRC
 
-** import from jupyter notebook 
+* Jupyter notebook import
 :PROPERTIES:
 :literate-lang: elisp
 :END:
-*** convert markdown to org syntax
-**** lua filter to remove PROPERTIES
+
+Importing an existing =.ipynb= into this project's literate-org
+structure. Two stages: convert the notebook's markdown cells to org
+prose (so the document reads like the rest of the project), then
+parse code cells into properly-headered =#+begin_src= blocks. Each
+stage gets a subsection below.
+
+** convert markdown to org syntax
+*** lua filter to remove PROPERTIES
 #+BEGIN_SRC elisp
 (defvar literate-org-lua-filter-remove-properties
     "
@@ -3257,7 +3312,7 @@ end
   "A lua filter to remove PROPERTIES drawer.")
 #+END_SRC
 
-**** main
+*** main
 #+BEGIN_SRC elisp
 (defun literate-org-markdown-to-org (str)
   (let* ((lua-filter-file (make-temp-file "literate-org-md-to-org" nil ".lua"))
@@ -3278,14 +3333,14 @@ end
       (delete-file dest-file))))
 #+END_SRC
 
-**** Only tangling code definitions 
+*** Only tangling code definitions
 #+BEGIN_SRC elisp
 (defvar literate-org-ipynb-tangled-prefix-patterns
     '("Function " "Class " "Import" "@"))
 
 #+END_SRC
 
-*** parse a notebook file
+** parse a notebook file
 #+BEGIN_SRC elisp
 (defun literate-org-import-ipynb-file (file)
   (interactive "f")

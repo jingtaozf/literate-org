@@ -25,6 +25,7 @@ def optimal_clusters(definitions, embeddings, min_k=2, max_k=10, threshold=0.05)
         scores: A dictionary mapping k to its silhouette score.
     """
     scores = {}
+    # # Cap k at sample count and short-circuit the trivial "too few samples" case.
     # Limit max_k to the number of samples
     max_k = min(max_k, len(embeddings))
 
@@ -35,6 +36,7 @@ def optimal_clusters(definitions, embeddings, min_k=2, max_k=10, threshold=0.05)
     best_k = None
     best_score = -1
 
+    # # Sweep k = min_k..max_k by silhouette score; ties within `threshold` favour the larger k.
     # Evaluate silhouette scores for each candidate k.
     for k in range(min_k, max_k + 1):
         kmeans = KMeans(n_clusters=k, random_state=42)
@@ -60,10 +62,12 @@ def optimal_clusters(definitions, embeddings, min_k=2, max_k=10, threshold=0.05)
     optimal_k = best_k
     print(f"\nOptimal number of clusters chosen: {optimal_k}")
 
+    # # Re-run KMeans once more with the chosen k to get the final label assignments.
     # Run final clustering with the optimal number of clusters.
     final_kmeans = KMeans(n_clusters=optimal_k, random_state=42)
     final_labels = final_kmeans.fit_predict(embeddings)
 
+    # # Group input definitions by their final cluster label and return the mapping.
     # Group definitions by cluster.
     clusters = {}
     for label, definition in zip(final_labels, definitions):

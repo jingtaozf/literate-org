@@ -34,9 +34,11 @@ class ModuleInfo:
 def extract_imports_from_code(code: str, module_name: str) -> List[ImportData]:
     """Extract import statements from Python code."""
     imports = []
+    # # Walk the AST; bail to an empty list on parse failure.
     try:
         tree = ast.parse(code)
         for node in ast.walk(tree):
+            # # Plain `import X` / `import X as Y` — one entry per name in the import list.
             if isinstance(node, ast.Import):
                 # Handle: import module_a, module_b as b
                 for alias in node.names:
@@ -49,6 +51,7 @@ def extract_imports_from_code(code: str, module_name: str) -> List[ImportData]:
                             is_wildcard=False,
                         )
                     )
+            # # `from X import ...` — split the wildcard case from the named-symbol case.
             elif isinstance(node, ast.ImportFrom):
                 if node.module:  # from module import ...
                     for alias in node.names:
@@ -74,6 +77,7 @@ def extract_imports_from_code(code: str, module_name: str) -> List[ImportData]:
                                     is_wildcard=False,
                                 )
                             )
+    # # Syntax-broken code is logged and treated as "no imports".
     except SyntaxError:
         logger.warning(f"Failed to parse imports from code in module {module_name}")
     return imports
@@ -156,6 +160,7 @@ class ModuleReloader:
         """Update symbols in modules that import from source_module."""
         updates = {}
 
+        # # Bail unless the source module is loaded *and* tracked by the reloader.
         if source_module not in sys.modules:
             return updates
 
@@ -165,7 +170,7 @@ class ModuleReloader:
         if not module_info:
             return updates
 
-        # For each module that imports from source_module
+        # # For every module that imports from `source_module`, find its tracked metadata or skip.
         for dependent_module_name in module_info.imported_by:
             if dependent_module_name not in sys.modules:
                 continue
@@ -178,7 +183,7 @@ class ModuleReloader:
 
             updated_names = []
 
-            # Check each import in the dependent module
+            # # Walk that module's imports and dispatch on the import shape: wildcard / named / module-only.
             for import_data in dependent_info.imports:
                 if import_data.module != source_module:
                     continue
@@ -209,6 +214,7 @@ class ModuleReloader:
                     setattr(dependent_mod, import_data.definition, source_mod)
                     updated_names.append(import_data.definition)
 
+            # # Record the rebound names per dependent module and return the full map.
             if updated_names:
                 updates[dependent_module_name] = updated_names
 

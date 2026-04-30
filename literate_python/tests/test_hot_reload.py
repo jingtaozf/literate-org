@@ -117,6 +117,7 @@ def func_b():
 
     def test_update_dependent_modules_with_alias(self):
         """Test updating dependent modules with aliased imports."""
+        # # Arrange: source module_a with a function and a constant, registered with the reloader.
         # Create actual modules in sys.modules
         import types
 
@@ -129,6 +130,7 @@ def func_b():
         # Track module_a
         self.reloader.track_module_execution("module_a", "", {"original_func", "value"})
 
+        # # Arrange: dependent module_b that imports both names from module_a under different aliases.
         # Create module_b that imports with alias
         module_b = types.ModuleType("module_b")
         module_b.my_func = (
@@ -146,6 +148,7 @@ from module_a import value as my_value
 """
         self.reloader.track_module_execution("module_b", code_b, set())
 
+        # # Act: rebind both names in module_a, then ask the reloader to propagate.
         # Now update module_a
         module_a.original_func = lambda: "updated"
         module_a.value = 200
@@ -153,6 +156,7 @@ from module_a import value as my_value
         # Update dependent modules
         updates = self.reloader.update_dependent_modules("module_a")
 
+        # # Assert: the alias-side names in module_b reflect the new bindings.
         # Check that module_b was updated
         self.assertIn("module_b", updates)
         self.assertIn("my_func", updates["module_b"])
@@ -182,6 +186,7 @@ class TestProcessMessageIntegration(unittest.TestCase):
 
     def test_exec_with_hot_reload(self):
         """Test that exec messages trigger hot reload."""
+        # # Arrange — define `test_module_x` with helper() and VALUE via the exec entry point.
         # First, create module_x
         message1 = {
             "type": "exec",
@@ -197,6 +202,7 @@ VALUE = 100
         result1 = process_a_message(message1)
         self.assertEqual(result1["type"], "result")
 
+        # # Arrange — define `test_module_y` that imports both names from x and combines them in use_helper().
         # Create module_y that imports from module_x
         message2 = {
             "type": "exec",
@@ -212,6 +218,7 @@ def use_helper():
         result2 = process_a_message(message2)
         self.assertEqual(result2["type"], "result")
 
+        # # Verify initial state, then act — re-exec test_module_x with new bindings to trigger hot reload.
         # Verify initial state
         import test_module_y
 
@@ -231,6 +238,7 @@ VALUE = 200
         result3 = process_a_message(message3)
         self.assertEqual(result3["type"], "result")
 
+        # # Assert — the response carries hot-reload metadata and module_y now reflects the new bindings.
         # Check that hot reload information is present
         self.assertIn("updated_modules", result3)
         self.assertIn("test_module_y", result3["updated_modules"])
@@ -242,6 +250,7 @@ VALUE = 200
 
     def test_exec_with_import_alias(self):
         """Test hot reload with import aliases."""
+        # # Arrange — define test_lib with a Calculator class and a compute() function via exec.
         # Create module_lib
         message1 = {
             "type": "exec",
@@ -259,6 +268,7 @@ def compute():
         result1 = process_a_message(message1)
         self.assertEqual(result1["type"], "result")
 
+        # # Arrange — define test_app that imports Calculator as Calc and compute as calc_func, exercising both alias forms.
         # Create module_app with aliased imports
         message2 = {
             "type": "exec",
@@ -275,6 +285,7 @@ result = calc_func()
         result2 = process_a_message(message2)
         self.assertEqual(result2["type"], "result")
 
+        # # Verify the pre-update behaviour, then act — re-exec test_lib with new Calculator behaviour and a new compute() return.
         # Verify initial state
         import test_app
 
@@ -296,6 +307,7 @@ def compute():
         }
         result3 = process_a_message(message3)
 
+        # # Assert — both aliased names appear in the hot-reload report and resolve to the new Calculator / compute behaviour.
         # Check hot reload occurred
         self.assertIn("updated_modules", result3)
         self.assertIn("test_app", result3["updated_modules"])
