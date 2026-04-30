@@ -2643,22 +2643,33 @@ The comment for a module is usually the first string in the Python file before a
 
 
 ***** How to get the name of a parse node
-****** function definition
+
+The Python dispatch table for =literate-org-node-name=. Each
+=cl-defmethod= overrides one tree-sitter node type to a human-readable
+section title. The methods are siblings in a dispatch table, so they
+live in one src block here rather than spread across separate
+sub-sections — that keeps the table scannable and avoids depth-6
+nesting that an LLM would otherwise drill into without zooming out.
+
+Definition / class / decorated definition pull the =:name= field;
+assignments and calls render the source text (truncated by
+=literate-org-max-title-size= to a left-hand-side or callee fall-back);
+the trivial node types (=try=, =while=, =string=, =comment=, =import=,
+=import_from_statement=) just return a constant label;
+=expression_statement= recurses into its first child.
+
 #+BEGIN_SRC elisp
+;; function_definition — the function's :name field
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql function_definition)) node)
   (format "Function %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-#+END_SRC
 
-****** class_definition
-#+BEGIN_SRC elisp
+;; class_definition — the class's :name field
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql class_definition)) node)
   (format "Class %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-#+END_SRC
 
-****** decorated_definition
-#+BEGIN_SRC elisp
+;; decorated_definition — chain of @decorators followed by the underlying definition
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql decorated_definition)) node)
   (let* ((name-list nil)
@@ -2670,85 +2681,62 @@ The comment for a module is usually the first string in the Python file before a
       (setf child (tsc-get-nth-child node index)))
     (format "@%s: %s" (mapconcat 'identity name-list " ")
             (literate-org-node-name language (tsc-node-type child) child))))
-#+END_SRC
-****** assignment
-#+BEGIN_SRC elisp
+
+;; assignment — the source text, or its :left child when too long
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql assignment)) node)
   (let ((code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length code) literate-org-max-title-size)
       (format "Assignment %s" code)
       (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))))
-#+END_SRC
 
-****** augmented_assignment
-#+BEGIN_SRC elisp
+;; augmented_assignment — same shape as assignment
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql augmented_assignment)) node)
   (let ((code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length code) literate-org-max-title-size)
       (format "Assignment %s" code)
       (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))))
-#+END_SRC
-****** call
-#+BEGIN_SRC elisp
+
+;; call — the source text, or its :function child when too long
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql call)) node)
   (let ((call-code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length call-code) literate-org-max-title-size)
       (format "Call %s" call-code)
       (format "Call %s" (tsc-node-text (tsc-get-child-by-field node :function))))))
-#+END_SRC
 
-****** try
-#+BEGIN_SRC elisp
+;; Constant labels for control-flow / scalar nodes that have no useful name.
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql try_statement)) node)
   "Try statement")
-#+END_SRC
 
-****** while
-#+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql while_statement)) node)
   "While statement")
-#+END_SRC
 
-****** string
-#+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql string)) node)
   "String")
-#+END_SRC
 
-****** comment
-#+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql comment)) node)
   "Comment")
-#+END_SRC
 
-****** import
-#+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql import)) node)
   "Import")
-#+END_SRC
-****** import_from_statement
-#+BEGIN_SRC elisp
+
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql import_from_statement)) node)
   "Import")
-#+END_SRC
 
-****** expression
-#+BEGIN_SRC elisp
+;; expression_statement — recurse into the wrapped expression
 (cl-defmethod literate-org-node-name ((language (eql python))
                                       (node-type (eql expression_statement)) node)
   (let ((new-node (tsc-get-nth-child node 0)))
     (literate-org-node-name language (ts-node-type new-node) new-node)))
 #+END_SRC
-
 
 ***** get the next code block index
 #+BEGIN_SRC elisp
@@ -2836,35 +2824,37 @@ The comment for a module is usually the first string in the Python file before a
 
 **** vue
 ***** How to get the name of a parse node
-****** function definition
+
+The TSX dispatch table for =literate-org-node-name=. Vue SFC code
+blocks fall through to TSX via =literate-org-alias-language= — note
+that even though this subsection lives under =**** vue=, every
+=cl-defmethod= dispatches on =(eql tsx)=. Same shape as the Python
+table above: name-bearing nodes (function / type alias / enum /
+interface / variable_declarator) pull the =:name= field; constant
+labels for trivial nodes; =export_statement= and =expression_statement=
+recurse one level into a wrapped node; =lexical_declaration= prepends
+the =:kind= keyword.
+
 #+BEGIN_SRC elisp
+;; function_declaration — the function's :name field
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql function_declaration)) node)
   (format "Function %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-#+END_SRC
 
-****** string
-#+BEGIN_SRC elisp
+;; Constant labels for nodes with no useful name field.
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql string)) node)
   "String")
-#+END_SRC
 
-****** comment
-#+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql comment)) node)
   "Comment")
-#+END_SRC
 
-****** import
-#+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql import)) node)
   "Import")
-#+END_SRC
-****** export
-#+BEGIN_SRC elisp
+
+;; export_statement — recurse into :declaration if present, else show :value source
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql export_statement)) node)
   (format "Export %s"
@@ -2874,31 +2864,21 @@ The comment for a module is usually the first string in the Python file before a
               (let ((value (tsc-get-child-by-field node :value)))
                 (if value
                   (tsc-node-text value)))))))
-#+END_SRC
-****** type_alias_declaration
-#+BEGIN_SRC elisp
+
+;; type_alias_declaration / enum_declaration / interface_declaration — :name field
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql type_alias_declaration)) node)
   (format "Type %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-#+END_SRC
 
-
-****** enum_declaration
-#+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql enum_declaration)) node)
   (format "Enum %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-#+END_SRC
 
-****** interface_declaration
-#+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql interface_declaration)) node)
   (format "Interface %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-#+END_SRC
 
-****** lexical
-#+BEGIN_SRC elisp
+;; lexical_declaration — render as "<kind> <inner-name>" (e.g. "let foo")
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql lexical_declaration)) node)
   (format "%s %s"
@@ -2907,25 +2887,19 @@ The comment for a module is usually the first string in the Python file before a
             (literate-org-node-name language
                                     (tsc-node-type sub-node)
                                     sub-node))))
-#+END_SRC
 
-****** variable_declarator
-#+BEGIN_SRC elisp
+;; variable_declarator — :name field
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql variable_declarator)) node)
   (format "Variable %s"
           (tsc-node-text (tsc-get-child-by-field node :name))))
-#+END_SRC
 
-****** expression
-#+BEGIN_SRC elisp
+;; expression_statement — recurse into the wrapped expression
 (cl-defmethod literate-org-node-name ((language (eql tsx))
                                       (node-type (eql expression_statement)) node)
   (let ((new-node (tsc-get-nth-child node 0)))
     (literate-org-node-name language (ts-node-type new-node) new-node)))
 #+END_SRC
-
-
 
 ***** get the next code block index
 #+BEGIN_SRC elisp
@@ -3066,7 +3040,13 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 
 ***** literate-org-node-name
 
-****** default
+vue-html nodes (HTML-template syntax) don't expose a structured =:name=
+field for most elements — the AST is mostly tags/attributes/text. The
+default override returns the first child's source text if any, falling
+back to the whole node's text. This is one method, not a dispatch
+table, so it lives directly in this section instead of an inner
+=****** default= sub-section that would push nesting to depth 6.
+
 #+BEGIN_SRC elisp
 (cl-defmethod literate-org-node-name ((language (eql vue-html)) node-type node)
   (aif (tsc-get-nth-child node 0)
