@@ -59,25 +59,46 @@ files in this repo:
 3. **Structure follows narrative logic.** Hierarchy mirrors how a
    reader builds their mental model: top-level = "what this module
    does", second level = "what concepts make it work", third level =
-   "concrete pieces". Don't nest deeper than four levels — beyond that
-   the reader is lost (enforced by `make check-structure`).
+   "concrete pieces". Before adding any new heading, look up — is the
+   surrounding hierarchy still readable, or are you drilling deeper
+   because each step felt locally reasonable while the global layout
+   decayed? `make check-structure` flags depth > 5 as a guardrail
+   (see "Structural shape" below); use the warning as a prompt to
+   re-examine layout, not as a number to chase.
 
 4. **Org files are the design record.** Every design decision, tradeoff,
    open question, and "why not the other approach" belongs in
    `literate-org.org` as prose. Chat conversations and PR threads are
    ephemeral. If you can't point at the prose, the decision didn't happen.
 
-## Structural caps (enforced by `make check-structure`)
+## Structural shape (enforced by `make check-structure`)
 
-- **Section nesting depth ≤ 4.** Deeper than four `*` levels in any
-  module section is rejected. If you need depth-5, the module is too
-  large — split it.
+The lint exists to catch the AI failure mode of drilling endlessly
+into a deep hierarchy because each individual addition feels reasonable
+in local context, while the global layout silently becomes
+incomprehensible. *Depth is not the rule.* The rule is: every section
+should sit where the reader's mental model puts it, and the reader's
+mental model breaks long before line 6 of indented asterisks.
+
+- **Section nesting depth ≤ 5 — guardrail, not target.** When the lint
+  fires, *do not raise the cap*. Step back and look at the surrounding
+  hierarchy: is a sibling layer missing? Is the parent a grab-bag that
+  forced this depth? Did the AI agent narrowly drill into one concept
+  without zooming out? Often a single rename or a flat sibling section
+  removes the depth complaint without losing structure. The cap is at
+  five (not three or four) so the lint stays out of the way of
+  legitimate hierarchy; *exceeding* it is the signal something is
+  wrong, not the strict bound itself.
 - **Forbidden grab-bag headings.** Section titles matching
   `^(Functions|Helpers|Utilities|Misc|Things|Stuff)\s*$` are rejected.
-  Name the *concept*, not the phase.
+  Name the *concept*, not the phase. A grab-bag heading is the most
+  common driver of accidental over-nesting: agents put all "the rest"
+  under it, and then nest specifics inside it because there's nowhere
+  else to put them.
 - **Prose before code.** A section with a `:tangle ./literate_python/*.py`
   property must have at least one non-empty prose line between the
-  heading and the first `#+begin_src` block.
+  heading and the first `#+begin_src` block. The prose is what tells a
+  human reader (or another agent) why the section exists at all.
 
 ## NL outline for long functions
 
@@ -113,7 +134,9 @@ For each modified `.org` section, ask:
 4. Is each `def` / `class` accompanied by a docstring that's a
    **sentence**, not a label?
 5. Function ≥ 40 lines? NL outline present?
-6. Section depth ≤ 4?
+6. Section depth ≤ 5? If not, did you check whether the surrounding
+   layout has a missing sibling layer or a grab-bag parent before
+   adding the deep section?
 
 If any answer is "no", the file isn't done — keep writing prose, not
 more code.

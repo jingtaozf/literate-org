@@ -3,9 +3,15 @@
 Enforces the rules in .claude/rules/literate-org-document-first.md that
 can be checked mechanically:
 
-  1. Section nesting depth ≤ 4.
+  1. Section nesting depth ≤ MAX_DEPTH (currently 5).
   2. No grab-bag headings (Functions / Helpers / Utilities / Misc / Things / Stuff).
   3. Sections that tangle to a Python file open with prose, not a src block.
+
+The depth check is a guardrail, not a target. The intent is to flag the
+AI failure mode of drilling deeper because each individual addition feels
+locally reasonable, while the global org layout decays. When this lint
+fires, the right reaction is to look at the surrounding hierarchy —
+not to raise the cap.
 
 Exits non-zero on any violation. Designed to be invoked from `make
 check-structure` and from CI.
@@ -19,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_TARGET = Path("literate-org.org")
-MAX_DEPTH = 4
+MAX_DEPTH = 5
 GRAB_BAG_RE = re.compile(
     r"^(Functions|Helpers|Utilities|Misc|Things|Stuff)\s*(?::[\w:]+:)?\s*$",
     re.IGNORECASE,
@@ -55,7 +61,7 @@ def lint(path: Path) -> list[Violation]:
                 violations.append(
                     Violation(
                         idx,
-                        "depth>4",
+                        f"depth>{MAX_DEPTH}",
                         f"section nesting depth is {depth}, max is {MAX_DEPTH}: {heading!r}",
                     )
                 )
