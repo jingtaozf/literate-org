@@ -10,8 +10,36 @@
       "Bash(poetry run python:*)",
       "Bash(poetry install:*)",
       "Bash(poetry lock:*)",
-      "Bash(make lint:*)"
+      "Bash(make lint:*)",
+      "Bash(make check-structure:*)",
+      "Bash(make check-nl-outline:*)",
+      "Bash(make index:*)",
+      "Bash(make tangle:*)"
     ],
     "deny": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-tangled-edit.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tangle-org-buffer.sh"
+          }
+        ]
+      }
+    ]
   }
 }

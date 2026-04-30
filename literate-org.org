@@ -124,7 +124,7 @@ So comes this library to help me import Python modules from org files in Emacs.
          (with-current-buffer (buffer-base-buffer)
            ;; The command `save-buffer` utilizes the base buffer for an indirect buffer.
            (add-hook 'before-save-hook 'literate-org-format-code-block -50 t)
-           (add-hook 'after-save-hook 'literate-org-tangle-current-file -50 t)
+           (add-hook 'after-save-hook 'literate-org-tangle-buffer -50 t)
            ;; (add-hook 'xref-backend-functions #'literate-org-xref-backend -50 t)
            ))))
     (t
@@ -132,7 +132,7 @@ So comes this library to help me import Python modules from org files in Emacs.
        (when (buffer-base-buffer)
          (with-current-buffer (buffer-base-buffer)
            (remove-hook 'before-save-hook 'literate-org-format-code-block t)
-           (remove-hook 'after-save-hook 'literate-org-tangle-current-file t)))
+           (remove-hook 'after-save-hook 'literate-org-tangle-buffer t)))
        ;; (remove-hook 'xref-backend-functions #'literate-org-xref-backend t)
        ))))
 #+END_SRC
@@ -197,6 +197,84 @@ So comes this library to help me import Python modules from org files in Emacs.
                   (org-babel-tangle '(16) file-name (f-ext file-name))
                   (run-hook-with-args 'literate-org-after-tangle-current-file file-name))))))))))
 #+END_SRC
+** tangle whole buffer on save
+
+`literate-org-tangle-current-file' is point-based: it tangles only the
+code block under point. That is correct for an interactive
+"reformat-and-write-this-block" command (=M-x literate-org-tangle-current-file=
+on a specific block) but wrong for the after-save-hook case.
+
+When an external editor — Claude Code's =Edit= tool, an =emacsclient -e=
+call, or any agent that mutates content outside the block at point —
+triggers a save, point is unreliable. A point-based tangle silently
+misses every change that did not happen at point. The fix is to tangle
+*every* code block in the buffer; ~org-babel-tangle~ with no arguments
+does exactly that, and is idempotent, so the worst case of running it
+when nothing changed is one extra disk write of identical bytes.
+
+This is the function bound to ~after-save-hook~ in ~literate-org-mode~:
+
+#+BEGIN_SRC elisp
+(defun literate-org-tangle-buffer ()
+  "Tangle every code block in the current buffer, then Black-format the
+.py output directories.
+
+Per-block Black via `python-black-org-mode-block' (in `before-save-hook')
+is necessary but not sufficient: Black's inter-definition rules — most
+visibly, two blank lines between top-level defs — require seeing the
+*concatenated* tangle output, not individual blocks. Running Black on
+the output directories closes that gap so the tangled .py is
+byte-identical to a manually `make lint'-ed version.
+
+We gate on the buffer's file extension rather than on `major-mode',
+because `literate-elisp-load' temporarily switches the buffer to
+`emacs-lisp-mode' during loading and a `derived-mode-p' check would
+spuriously skip tangle in that window."
+  (when (and (buffer-file-name)
+             (string-suffix-p ".org" (buffer-file-name)))
+    (let* ((inhibit-message t)
+           (tangled (org-babel-tangle))
+           (py-dirs (delete-dups
+                     (mapcar #'file-name-directory
+                             (seq-filter (lambda (f) (string-suffix-p ".py" f))
+                                         tangled)))))
+      (dolist (d py-dirs)
+        (ignore-errors
+          (call-process "poetry" nil nil nil "run" "black" "--quiet" d))))))
+#+END_SRC
+
+** tangle by path (for external automation)
+
+The companion entry point that automation hooks call when they have a
+file path but no live buffer:
+
+- =find-file-noselect= returns the existing buffer if the file is
+  already open, otherwise loads it from disk.
+- If the buffer is clean but disk has been modified externally (Claude
+  wrote via =Edit=, or anything else changed it), revert the buffer so
+  the tangle reflects the on-disk truth.
+- If the buffer is dirty AND disk also changed externally, that is a
+  genuine dual-writer conflict — signal an error and bail. The agent
+  surfaces the message; the user resolves manually.
+
+#+BEGIN_SRC elisp
+(defun literate-org-tangle-by-path (path)
+  "Load PATH into a buffer if needed and tangle.
+Used by =.claude/hooks/tangle-org-buffer.sh= for the disk-write case.
+Errors out if the buffer is dirty AND disk has changed externally —
+that conflict requires human resolution."
+  (with-current-buffer (find-file-noselect path t)
+    (cond
+      ((and (buffer-modified-p)
+            (not (verify-visited-file-modtime (current-buffer))))
+       (error "Buffer for %s has unsaved changes and disk has changed externally; resolve manually" path))
+      ((not (verify-visited-file-modtime (current-buffer)))
+       (revert-buffer t t t)
+       (literate-org-tangle-buffer))
+      (t
+       (literate-org-tangle-buffer)))))
+#+END_SRC
+
 ** xref backend
 *** visit a point in the tangled file of a code block
 #+BEGIN_SRC elisp
@@ -951,6 +1029,8 @@ class ModuleReloader:
 
 #+END_SRC
 
+**Verified by:** [[*test hot reload functionality][test hot reload functionality]] — exercises =extract_imports_from_code=, =ModuleReloader=, and the integration with =process_a_message=.
+
 *** web server
 :PROPERTIES:
 :LITERATE_ORG_MODULE: literate_python.server
@@ -1246,6 +1326,8 @@ def run_server():
     app.run(debug=True, port=port, host=host, use_reloader=False)
 
 #+END_SRC
+
+**Verified by:** [[*test hot reload functionality][test hot reload functionality]] (=process_a_message= path) and [[*test update locals in marimo notebook automatically][test update locals in marimo notebook automatically]] (locals propagation across requests).
 
 ** Tests
 :PROPERTIES:
