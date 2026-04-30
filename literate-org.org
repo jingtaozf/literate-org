@@ -584,13 +584,19 @@ logger = logging.getLogger(__name__)
 
 #+END_SRC
 **** in-memory module storage
-***** the global parameter
+
+A process-global =inMemoryModules= dict holds loaded module specs so
+=LiterateImporter= can hand back the right code without re-parsing
+the org tree on every import. The dict is initialised exactly once
+(idempotent guard against re-registration) and module specs flow in
+via =register_literate_modules=.
+
 #+BEGIN_SRC python
 if "inMemoryModules" not in globals():
     inMemoryModules = {}
 
 #+END_SRC
-***** a method to register a list of modules
+
 #+BEGIN_SRC python
 def register_literate_modules(module_spec_list: list) -> None:
     for module_spec in module_spec_list:
@@ -651,13 +657,21 @@ def register_literate_module_finder():
 
 #+END_SRC
 **** operations with org files
-***** load python modules from an org file
+
+Three I/O entry points the importer needs once it has been wired into
+=sys.meta_path=. =load_literate_modules_from_org_file= reads a path
+and delegates to orgparse; =load_literate_modules_from_org_node=
+walks a single parsed node into the in-memory store; the third
+helper round-trips a local Python package back into an org-friendly
+string. The latter two are stubs at the moment — kept here as the
+intended shape of the API.
+
 #+BEGIN_SRC python
 def load_literate_modules_from_org_file(org_file: str) -> None:
     orgparse.load(org_file)
 
 #+END_SRC
-***** load literate modules form org nodes
+
 #+BEGIN_SRC python
 def load_literate_modules_from_org_node(node: orgparse.OrgNode) -> None:
     # root_module = LITERATE_ORG_ROOT_MODULE
@@ -665,7 +679,6 @@ def load_literate_modules_from_org_node(node: orgparse.OrgNode) -> None:
 
 #+END_SRC
 
-***** build an org model compatible string from a local python package
 #+BEGIN_SRC python
 def build_org_model_from_local_python_package(package_path: str) -> str:
     pass
@@ -1969,12 +1982,17 @@ Otherwise, execute the current top-level Python construct at point."
   literate-org-db-instance)
 #+END_SRC
 **** as a key value
-***** get value
+
+A two-function key/value façade over the cache db. =literate-org-db-get=
+reads the latest value for =(table, key)=; =literate-org-db-set= upserts.
+The :insert-or-replace semantics let callers treat the cache as a
+plain hash without worrying about prior writes.
+
 #+BEGIN_SRC elisp
 (defun literate-org-db-get (table key)
   (caar (emacsql (literate-org-db) [:select value :from $s2 :where (= key $s1)] key table)))
 #+END_SRC
-***** set value
+
 #+BEGIN_SRC elisp
 (defun literate-org-db-set (table key value)
   (emacsql (literate-org-db) [:insert-or-replace-into $s3 :values ([$s1 $s2])] key value table))
@@ -2190,8 +2208,14 @@ def _(obj: datetime) -> dict:
   (let ((norm (sqrt (apply #'+ (mapcar (lambda (x) (* x x)) vec)))))
     (mapcar (lambda (x) (/ x norm)) vec)))
 #+END_SRC
-**  semantic clustering
-***** data structure of a code block
+** semantic clustering
+
+Group related code blocks by their LLM-generated summaries. The data
+structure carries a per-block embedding + a generated summary (cached
+in the local sqlite db); a downstream clustering step consumes those
+to propose hierarchical groupings.
+
+*** data structure of a code block
 #+BEGIN_SRC elisp
 (cl-defstruct literate-org-code-block
   title
@@ -2203,13 +2227,13 @@ def _(obj: datetime) -> dict:
   parent
   level)
 #+END_SRC
-***** summary of a code block
-****** prompt
+*** summary of a code block
+**** prompt
 #+BEGIN_SRC elisp
 (llm-defprompt literate-org-summary-prompt "Please summarize the following {{language}} code block {{code}}")
 #+END_SRC
 
-****** impl
+**** impl
 #+BEGIN_SRC elisp
 (cl-defun literate-org-code-summary (code lang callback &key force)
   "Summarize the code block."
@@ -2235,7 +2259,7 @@ If the code is self-explanatory, you may return nothing.")
        ))))
 #+END_SRC
 
-****** an interactive command
+**** an interactive command
 #+BEGIN_SRC elisp
 (defun literate-org-code-summary-for-current-code-block ()
   (interactive)
@@ -2300,14 +2324,18 @@ we can parse the Python code and get the first function name.
 (require 'f); for file operations
 #+END_SRC
 **** Configurations
-***** ignored directories
+
+Two user-tunable knobs that govern source-file import: which
+directories to skip on disk (=literate-org-ignored-dirs=) and how
+long an org section title may grow before truncation
+(=literate-org-max-title-size=).
+
 #+BEGIN_SRC elisp
 (defcustom literate-org-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea" ".venv" "__pycache__" "__marimo__" "node_modules")
   "The directories to be ignored when importing source files."
   :group 'literate-org)
 #+END_SRC
 
-***** the maximum size of a title for an org section
 #+BEGIN_SRC elisp
 (defcustom literate-org-max-title-size 80
   "The maximum size of a title for an org section."
@@ -2352,7 +2380,6 @@ caller passes the language symbol and gets back a parse tree rooted
 at the buffer; everything else in this module dispatches off that
 tree.
 
-***** the parse tree for current file
 #+BEGIN_SRC elisp
 (cl-defun literate-org-parse-tree-for-current-file (language)
   (let* ((language (literate-org-treesit-parser-language language))
@@ -2433,7 +2460,20 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 #+END_SRC
 
 **** import source files
-***** how to prepare a new org section for a module
+
+The four sections that follow implement the round-trip from a Python
+package on disk back into a literate-org document. Each is a single
+function:
+
+1. *Prepare a new org section* — emit headers + properties for a
+   module given a name, level, and path.
+2. *Iterate a directory or file* — top-level entry point that picks
+   between directory walk and single-file import.
+3. *Import a directory* — recursive walk, one section per submodule.
+4. *Import a file* — parse a single source file's tree and emit a
+   section with one src block per top-level definition.
+
+**** Prepare a new org section for a module
 #+BEGIN_SRC elisp
 (cl-defun literate-org-new-org-section-for-a-module (module-name new-level &key (title module-name) language path)
   (loop repeat new-level do (insert "*"))
@@ -2441,7 +2481,7 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
   (cl-loop for (key . value) in (literate-org-properties-for-a-module language module-name path)
            do (org-entry-put (point) key value)))
 #+END_SRC
-***** iterate a directory or a file to import source files
+**** Iterate a directory or a file to import source codes
 #+BEGIN_SRC elisp
 (cl-defun literate-org-import (&key (level (or (org-current-level) 0))
                                     module-name module-path)
@@ -2476,7 +2516,7 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
           (literate-org-import-file module-name module-path))
         (message "Finished importing module %s from %s" module-name module-path)))))
 #+END_SRC
-***** import a directory
+**** Import a directory
 #+BEGIN_SRC elisp
 (cl-defun literate-org-import-directory (module-name module-directory &key (level (or (org-current-level) 0)))
   (let* ((languages (or (aand (org-entry-get (point) "LITERATE_ORG_LANGUAGES" t)
@@ -2521,7 +2561,7 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
                                  :module-path directory)))))))
 #+END_SRC
 
-***** import a file
+**** Import a file
 #+BEGIN_SRC elisp
 (defun literate-org-import-file (module-name module-path)
   (let* ((languages (or (aand (org-entry-get (point) "LITERATE_ORG_LANGUAGES" t)
