@@ -35,6 +35,15 @@ repos:
         language: system
         files: \.py$
         pass_filenames: false
+      # Dead-code lint via vulture. Configured in [tool.vulture] in
+      # pyproject.toml; the smoke test (commit 79ec480) verified it
+      # catches a fresh top-level dead function at 60% confidence.
+      - id: check-dead-code
+        name: check-dead-code
+        entry: poetry run vulture
+        language: system
+        files: \.py$
+        pass_filenames: false
   # Per-commit secret scan. The pre-commit framework downloads gitleaks
   # automatically on first run, so no system install is required.
   # Full git-history scan is done via `make secret-scan`.
