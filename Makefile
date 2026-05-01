@@ -29,6 +29,12 @@ tangle:
 index:
 	python3 scripts/build_index.py
 
+# One-shot full-history secret scan (gitleaks). Per-commit scan runs via
+# pre-commit. Use this on first install to baseline existing history,
+# and ad-hoc when investigating a leak alert.
+secret-scan:
+	pre-commit run gitleaks --all-files
+
 dev:
 	poetry run marimo edit dev.py
 

@@ -14,7 +14,8 @@
       "Bash(make check-structure:*)",
       "Bash(make check-nl-outline:*)",
       "Bash(make index:*)",
-      "Bash(make tangle:*)"
+      "Bash(make tangle:*)",
+      "Bash(make secret-scan:*)"
     ],
     "deny": []
   },

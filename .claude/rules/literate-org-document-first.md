@@ -23,6 +23,31 @@ This split has consequences for AI agents:
 Adapted from `~/projects/claude-agent/.claude/rules/literate-programming-document-first.md`,
 calibrated for the Python LP runtime in this repo.
 
+## NEVER-touch list (the hook enforces some of these)
+
+The PreToolUse hook in `.claude/hooks/block-tangled-edit.sh` rejects the
+first item below. The rest are project-wide rules even where no hook
+catches them — agents and humans alike must follow.
+
+- **NEVER** edit `literate_python/*.py` directly. They are tangle
+  artefacts; the hook will return exit 2 with a friendly message.
+  Edit the corresponding org section in `literate-org.org` instead.
+- **NEVER** edit `literate_python/__pycache__/`, `dist/`, `*.egg-info/`,
+  `.cache/`, or any other generated tree. They are recreated.
+- **NEVER** rename or remove a `:LITERATE_ORG_MODULE:` property without
+  also updating its `:tangle` path; the importer keys off the property.
+- **NEVER** add `:noweb yes` to an Emacs Lisp src block — `literate-elisp`
+  loads `.org` directly and does not expand `<<chunk>>` references at
+  load time. (This is fine for Python; that path uses `org-babel-tangle`
+  and supports noweb.)
+- **NEVER** introduce a section heading at depth > 5 in `literate-org.org`
+  — `make check-structure` will fail. Re-examine the surrounding layout
+  before adding the deep section; usually a missing sibling layer is the
+  real cause.
+- **NEVER** open a section that tangles to a `.py` with `#+begin_src`
+  directly — it must have at least one prose line first. `make
+  check-structure` enforces this.
+
 ## What "document first" means
 
 For the master file (`literate-org.org`) and any future companion `.org`
