@@ -22,7 +22,7 @@ def _get_module_spec(fullname: str) -> bool:
 
 
 class LiterateImporter(object):
-    def find_module(self, fullname: str, path=None):
+    def find_module(self, fullname: str, _path=None):
         if _get_module_spec(fullname):
             logger.debug(f"Found literate module {fullname}")
             return self
@@ -46,7 +46,7 @@ class LiterateImporter(object):
 
 
 class LiterateModuleFinder(importlib.abc.MetaPathFinder):
-    def find_spec(self, fullname, path, target=None):
+    def find_spec(self, fullname, _path, _target=None):
         if _get_module_spec(fullname):
             logger.debug(f"Found literate module {fullname}")
             return importlib.machinery.ModuleSpec(fullname, LiterateImporter())
@@ -70,5 +70,5 @@ def load_literate_modules_from_org_node(node: orgparse.OrgNode) -> None:
     pass
 
 
-def build_org_model_from_local_python_package(package_path: str) -> str:
+def build_org_model_from_local_python_package(_package_path: str) -> str:
     pass

@@ -18,6 +18,23 @@ repos:
         entry: flake8
         language: system
         files: \.py$
+      # Structural lint for literate-org.org: depth, no grab-bag, prose-first.
+      # Re-runs the whole-file check whenever any .org changes. The script
+      # decides which file to lint via its DEFAULT_TARGET.
+      - id: check-structure
+        name: check-structure
+        entry: python3 scripts/check_org_structure.py
+        language: system
+        files: \.org$
+        pass_filenames: false
+      # NL-outline lint: flags long Python functions without `# # ` partition
+      # comments. Runs on .py changes (the tangle output we ship).
+      - id: check-nl-outline
+        name: check-nl-outline
+        entry: python3 scripts/check_nl_outline.py
+        language: system
+        files: \.py$
+        pass_filenames: false
   # Per-commit secret scan. The pre-commit framework downloads gitleaks
   # automatically on first run, so no system install is required.
   # Full git-history scan is done via `make secret-scan`.

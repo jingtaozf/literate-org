@@ -13,6 +13,9 @@ check-structure:
 check-nl-outline:
 	python3 scripts/check_nl_outline.py
 
+check-dead-code:
+	poetry run vulture
+
 tangle:
 	@if [ -z "$(FILE)" ]; then \
 	  echo "usage: make tangle FILE=path/to/file.org" >&2; exit 2; \
