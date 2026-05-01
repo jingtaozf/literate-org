@@ -4,7 +4,10 @@ version = "0.0.6"
 description = "Develop Python modules in Org files."
 authors = ["Jingtao Xu <jingtaozf@gmail.com>"]
 license = "MIT"
-readme = "README.org"
+# PEP-621 `[project].readme` (below) is the canonical reference; PyPI
+# renders Markdown but not org-mode, so the distribution-side README is
+# README.md. The richer README.org is the repo-side doc and links into
+# AGENTS.md / ARCHITECTURE.org.
 
 [tool.poetry.dependencies]
 python = "^3.10"
