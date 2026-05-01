@@ -1,0 +1,23 @@
+pyproject.toml
+  c64dc2a0252e72ae 32-40,42,44-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "79ec480749dcf033f123fb2f4e933e5af28f18e2",
+  "prompts": {
+    "c64dc2a0252e72ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "664ffb06-956f-4baf-89b9-5bcf26d39894",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu",
+      "messages": [],
+      "total_additions": 25,
+      "total_deletions": 7,
+      "accepted_lines": 212,
+      "overriden_lines": 0
+    }
+  }
+}
