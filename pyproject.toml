@@ -29,13 +29,23 @@ twine = "^5.1.1"
 vulture = "^2.16"
 
 [tool.vulture]
-# Dead-code analysis. See vulture_whitelist.py for the rationale of every
-# pre-referenced symbol. Confidence >= 80 keeps the noise down; the
-# multimethod-overload `_` functions live behind @_inspect.register
-# which we ignore as a decorator.
+# Dead-code analysis. Three suppression layers:
+#   1. vulture_whitelist.py — explicit references for symbols vulture's
+#      static scan can't see (Python import-protocol, Flask routes,
+#      multimethod dispatch surfaces, pytest discovery).
+#   2. ignore_decorators — multimethod overloads via @_inspect.register.
+#   3. ignore_names — CPython module attrs set on dynamically-created
+#      modules, ModuleData dataclass fields seen via getattr, and the
+#      pytest test_* discovery convention.
+# min_confidence = 60 catches top-level dead functions (which 80 misses).
 paths = ["literate_python", "vulture_whitelist.py"]
-min_confidence = 80
+min_confidence = 60
 ignore_decorators = ["@_inspect.register"]
+ignore_names = [
+    "__loader__", "__path__", "__package__",
+    "last_modified", "old_objects",
+    "test_*", "test1",
+]
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
