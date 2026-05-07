@@ -1,4 +1,4 @@
-# -*- Mode: POLY-ORG ; common-lisp-style: elisp; indent-tabs-mode: nil;  -*- ---
+# -*- Mode: POLY-ORG ; common-lisp-style: elisp; indent-tabs-mode: nil; literate-org-py-formatter: ruff;  -*- ---
 #+Title: Literate Programming  in Org files.
 #+OPTIONS: tex:verbatim toc:nil \n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
 #+STARTUP: noindent
@@ -216,15 +216,16 @@ This is the function bound to ~after-save-hook~ in ~literate-org-mode~:
 
 #+BEGIN_SRC elisp
 (defun literate-org-tangle-buffer ()
-  "Tangle every code block in the current buffer, then Black-format the
-.py output directories.
+  "Tangle every code block in the current buffer, then format the .py
+output directories via `literate-org-format-py'.
 
-Per-block Black via `python-black-org-mode-block' (in `before-save-hook')
-is necessary but not sufficient: Black's inter-definition rules — most
-visibly, two blank lines between top-level defs — require seeing the
-*concatenated* tangle output, not individual blocks. Running Black on
-the output directories closes that gap so the tangled .py is
-byte-identical to a manually `make lint'-ed version.
+Per-block formatting via `python-black-org-mode-block' (in
+`before-save-hook') is necessary but not sufficient: a formatter's
+inter-definition rules — most visibly, two blank lines between
+top-level defs — require seeing the *concatenated* tangle output, not
+individual blocks. Running the formatter on the output directories
+closes that gap; the formatter itself is selected by
+`literate-org-py-formatter' (default `black', also `ruff' or nil).
 
 We gate on the buffer's file extension rather than on `major-mode',
 because `literate-elisp-load' temporarily switches the buffer to
@@ -232,6 +233,14 @@ because `literate-elisp-load' temporarily switches the buffer to
 spuriously skip tangle in that window."
   (when (and (buffer-file-name)
              (string-suffix-p ".org" (buffer-file-name)))
+    ;; Re-apply file-local variables before reading them. Two callers
+    ;; would otherwise see stale values: `literate-org-tangle-by-path'
+    ;; reverts with PRESERVE-MODES=t (skips `hack-local-variables'
+    ;; intentionally to avoid restarting org-mode on every external
+    ;; edit), and `save-buffer' never calls it. Without this hack-call
+    ;; an updated `literate-org-py-formatter:' on the first line would
+    ;; not take effect until the next full file re-visit.
+    (hack-local-variables :no-mode)
     (let* ((inhibit-message t)
            (tangled (org-babel-tangle))
            (py-dirs (delete-dups
@@ -239,8 +248,7 @@ spuriously skip tangle in that window."
                              (seq-filter (lambda (f) (string-suffix-p ".py" f))
                                          tangled)))))
       (dolist (d py-dirs)
-        (ignore-errors
-          (call-process "poetry" nil nil nil "run" "black" "--quiet" d))))))
+        (literate-org-format-py literate-org-py-formatter d)))))
 #+END_SRC
 
 ** tangle by path (for external automation)
@@ -273,6 +281,82 @@ that conflict requires human resolution."
        (literate-org-tangle-buffer))
       (t
        (literate-org-tangle-buffer)))))
+#+END_SRC
+
+** Per-buffer formatter choice
+
+After tangling, the =.py= output needs a formatter pass that sees the
+*concatenated* file — Black/Ruff inter-definition rules (e.g. two
+blank lines between top-level defs) cannot run per-block. This section
+owns that pass and the knob that picks which formatter runs.
+
+Selection is one buffer-local symbol. Three built-ins ship: =black=
+(default; current behaviour), =ruff= (=ruff format=, fast Rust
+formatter), and =nil= (skip — useful for debugging tangle output
+verbatim). Override per file with the first-line file-local variable
+form, or globally via =M-x customize-variable=:
+
+#+begin_example
+,# -*- mode: org; literate-org-py-formatter: ruff -*-
+#+end_example
+
+The dispatch uses =cl-defgeneric= rather than =pcase= — same
+multimethod pattern already in =literate-org-node-name= (per-language
+tree-sitter dispatch) and =inspector= (Python registry). New
+formatters register without touching this section:
+
+#+begin_example
+;; in init.el or a plug-in literate-org file
+(cl-defmethod literate-org-format-py ((_ (eql autopep8)) dir)
+  (literate-org--run-formatter "autopep8" "--in-place" "--recursive" dir))
+#+end_example
+
+The =:safe= predicate is intentionally permissive (=symbolp=) so a
+user-registered method is selectable via the file-local var without
+extending an explicit allowlist. An unknown FORMATTER signals
+=cl-no-applicable-method= at tangle time — explicit, not silent.
+
+The =--run-formatter= helper wraps =call-process= in =ignore-errors=
+because a missing formatter binary must not block =after-save-hook= —
+the save still completes, the =.py= just lands unformatted. This is
+the documented silent-failure exception per
+=.claude/rules/code-quality-over-feature.md=: blocking saves on a
+formatter outage punishes the wrong workflow.
+
+#+BEGIN_SRC elisp
+(defcustom literate-org-py-formatter 'black
+  "Formatter applied to tangled Python output directories.
+
+Built-in: `black' (default), `ruff', or nil to skip. Extend by adding
+methods to `literate-org-format-py'. File-local override:
+
+    # -*- mode: org; literate-org-py-formatter: ruff -*-"
+  :type '(choice (const :tag "Black"          black)
+                 (const :tag "Ruff format"    ruff)
+                 (const :tag "None (skip)"    nil)
+                 (symbol :tag "Custom (user-defined method)"))
+  :group 'literate-org
+  :safe #'symbolp)
+
+(defun literate-org--run-formatter (cmd &rest args)
+  "Run \"poetry run CMD ARGS...\" silently. Errors are swallowed: a
+missing formatter must not break `after-save-hook'."
+  (ignore-errors
+    (apply #'call-process "poetry" nil nil nil "run" cmd args)))
+
+(cl-defgeneric literate-org-format-py (formatter dir)
+  "Format Python files in DIR using FORMATTER (a symbol).
+Dispatch via `(eql FORMATTER)' specializer; an unknown FORMATTER
+signals `cl-no-applicable-method'.")
+
+(cl-defmethod literate-org-format-py ((_formatter (eql nil)) _dir)
+  "Explicit opt-out; do nothing." nil)
+
+(cl-defmethod literate-org-format-py ((_formatter (eql black)) dir)
+  (literate-org--run-formatter "black" "--quiet" dir))
+
+(cl-defmethod literate-org-format-py ((_formatter (eql ruff)) dir)
+  (literate-org--run-formatter "ruff" "format" "--quiet" dir))
 #+END_SRC
 
 ** xref backend
