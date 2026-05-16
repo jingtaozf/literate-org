@@ -2912,34 +2912,33 @@ the trivial node types (=try=, =while=, =string=, =comment=, =import=,
 
 **** Rust
 
-Rust top-level items have a clean tree-sitter grammar — every item type
+Rust's tree-sitter grammar is clean: every top-level item
 (=function_item=, =struct_item=, =enum_item=, =trait_item=, =union_item=,
 =mod_item=, =const_item=, =static_item=, =type_item=, =macro_definition=,
-=impl_item=, =foreign_mod_item=) is a direct child of the =source_file=
-root, and most carry a =:name= field. The dispatch table mirrors the
-Python one above; only a handful of Rust-specific shapes need
-hand-coding:
+=impl_item=, =foreign_mod_item=) is a direct child of =source_file=, and
+most carry a =:name= field. The dispatch mirrors Python's; only a few
+Rust-specific shapes need hand-coding:
 
 - Outer attributes (=#[derive(...)]=) and doc comments (=///=) precede
   the item they decorate, so =next-code-block-index= slides past them
-  and lets the item's heading absorb them.
-- Multiple =use= / =extern crate= declarations get folded into a single
-  "Use declarations" block, matching the way Python collapses
-  =import_statement= runs.
-- Inner attributes (=#![...]=) at the very top of the file have to be
-  skipped before scanning for the =//!= module doc, otherwise the doc
-  is lost when a crate opens with =#![allow(dead_code)]=.
+  and the item's heading absorbs them.
+- Contiguous =use= / =extern crate= declarations fold into one "Use
+  declarations" block, the same way Python collapses =import_statement=
+  runs.
+- Inner attributes (=#![...]=) at the file top must be skipped before
+  scanning for the =//!= module doc — otherwise a crate that opens with
+  =#![allow(dead_code)]= loses its module comment.
 - Top-level macro invocations come in two shapes: =lazy_static! { ... }=
   parses as a direct =macro_invocation=, while =include_str!(...);=
-  parses as an =expression_statement= wrapping a =macro_invocation=.
-  Both are emitted as "Macro call <name>" blocks via the =:macro= field.
+  wraps one in an =expression_statement=. Both emit "Macro call <name>"
+  via the =:macro= field.
 
 ***** file extension and module comment
 
-The extension is =.rs=. The module comment is the contiguous run of
-=//!= lines at the top of the file, *after* any leading
-=inner_attribute_item= / =attribute_item= nodes — this is the gap that
-bit the prototype on files starting with =#![allow(...)]=.
+Extension =.rs=. The module comment is the contiguous run of =//!= lines
+at the top, *after* any leading =inner_attribute_item= /
+=attribute_item= nodes — the gap that bit the prototype on crates
+opening with =#![allow(...)]=.
 
 #+BEGIN_SRC elisp
 (cl-defmethod literate-org-file-extension ((_language (eql rust)))
@@ -2971,13 +2970,12 @@ bit the prototype on files starting with =#![allow(...)]=.
 
 ***** How to get the name of a parse node
 
-The Rust dispatch table for =literate-org-node-name=. Name-bearing
-items pull =:name=; =impl_item= renders =impl <Trait> for <Type>= when
-=:trait= is present and =impl <Type>= otherwise; =macro_invocation=
-prefers =:macro= and falls back to the source text;
-=expression_statement= recurses into its first child (same unwrap rule
-as Python). Constant labels cover use / extern / comment / attribute
-nodes that don't carry useful names.
+Dispatch table for =literate-org-node-name=. Name-bearing items pull
+=:name=; =impl_item= renders =impl <Trait> for <Type>= when =:trait=
+is present, else =impl <Type>=; =macro_invocation= prefers =:macro=
+and falls back to source text; =expression_statement= recurses into
+its first child. Constant labels cover use / extern / comment /
+attribute nodes that lack useful names.
 
 #+BEGIN_SRC elisp
 ;; Items that expose a :name field — flat dispatch.
@@ -3024,16 +3022,13 @@ nodes that don't carry useful names.
       (format "Impl %s" (or type-text "?")))))
 
 ;; macro_invocation — :macro field gives the macro path (e.g. "lazy_static",
-;; "include_str", "my_crate::register").
+;; "include_str", "my_crate::register"); fall back to the whole node text.
 (cl-defmethod literate-org-node-name ((_language (eql rust))
                                       (_node-type (eql macro_invocation)) node)
   (let ((macro-node (ignore-errors (tsc-get-child-by-field node :macro))))
-    (if macro-node
-      (format "Macro call %s" (tsc-node-text macro-node))
-      (format "Macro call %s" (tsc-node-text node)))))
+    (format "Macro call %s" (tsc-node-text (or macro-node node)))))
 
-;; expression_statement — recurse into the wrapped expression. Same unwrap
-;; rule as Python's expression_statement handler.
+;; expression_statement — recurse into the wrapped expression.
 (cl-defmethod literate-org-node-name ((language (eql rust))
                                       (_node-type (eql expression_statement)) node)
   (let ((inner (tsc-get-nth-child node 0)))
@@ -3065,13 +3060,12 @@ nodes that don't carry useful names.
 
 ***** get the next code block index
 
-Rust's =next-code-block-index= keeps three sets of node types: real
-*items* that become their own block, *use-like* declarations that get
-folded into one "Use declarations" block, and *preludes* (attributes,
-comments) that slide forward and merge with the next item. An
-=expression_statement= whose first child is a =macro_invocation= also
-counts as an item — that's how =include_str!(...);= and friends get
-their own block instead of disappearing into the fall-through.
+Three node sets drive the scan: *items* (own block), *use-like*
+declarations (folded into one "Use declarations" block), and *preludes*
+(attributes / comments, slide forward into the next item). An
+=expression_statement= wrapping a =macro_invocation= also counts as an
+item — that's how =include_str!(...);= gets its own block instead of
+falling through.
 
 #+BEGIN_SRC elisp
 ;; defconst rather than defvar — these are semantic constants over the
@@ -3099,9 +3093,7 @@ their own block instead of disappearing into the fall-through.
 Doc comments belong to the item that follows, so the use-grouping pass
 must NOT swallow them — they should slide forward to the next item."
   (and (eq 'line_comment (tsc-node-type node))
-       (let ((text (tsc-node-text node)))
-         (or (string-prefix-p "///" text)
-             (string-prefix-p "//!" text)))))
+       (string-match-p "\\`//[/!]" (tsc-node-text node))))
 
 (cl-defmethod literate-org-next-code-block-index ((language (eql rust))
                                                   root start-index)
