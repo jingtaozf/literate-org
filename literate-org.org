@@ -1355,7 +1355,6 @@ def process_a_message(message):
         return return_value
 
 #+END_SRC
-**** register in memory python modules 
 **** register
 #+BEGIN_SRC python
 def register(request):
@@ -1453,12 +1452,6 @@ def run_server():
 :LITERATE_ORG_MODULE: literate_python.tests.test_server
 :header-args: :tangle ./literate_python/tests/test_server.py
 :END:
-**** test1
-#+BEGIN_SRC python
-def test1():
-    print("Hello!")
-
-#+END_SRC
 *** test hot reload functionality
 :PROPERTIES:
 :LITERATE_ORG_MODULE: literate_python.tests.test_hot_reload
@@ -2360,7 +2353,6 @@ If the code is self-explanatory, you may return nothing.")
        (switch-to-buffer-other-window "*literate-org-summary*")))))
 #+END_SRC
 
-** TOC
 * Sync between org files and source files
 :PROPERTIES:
 :literate-lang: elisp
@@ -3316,8 +3308,11 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
 
 
 **** vue-html
-***** determine treesit parser language in current buffer
+***** file extension and treesit parser language
 #+BEGIN_SRC elisp
+(cl-defmethod literate-org-file-extension ((language (eql vue-html)))
+  "vue")
+
 (cl-defmethod literate-org-treesit-parser-language ((language (eql vue-html)))
   'html)
 #+END_SRC
@@ -3366,13 +3361,6 @@ table, so it lives directly in this section instead of an inner
 
 
 **** tsx
-***** file extensions for a language
-#+BEGIN_SRC elisp
-(cl-defmethod literate-org-file-extension ((language (eql vue-html)))
-  "vue")
-#+END_SRC
-
-
 ***** alias language
 #+BEGIN_SRC elisp
 (cl-defmethod literate-org-alias-language ((language (eql ts)))
@@ -3640,11 +3628,18 @@ end
       (delete-file dest-file))))
 #+END_SRC
 
-*** Only tangling code definitions
+*** Tangle-only prefix patterns
+
+When exporting an org section back to an ipynb cell, we only tangle
+code blocks whose heading title starts with one of these prefixes —
+the data-driven node-name dispatch produces titles like "Function
+foo", "Class Bar", "Import …", and "@decorator" methods.  Everything
+else (Assignment, Call, Try statement, Comment, …) stays in the
+section but is *not* re-exported to the notebook cell.
+
 #+BEGIN_SRC elisp
 (defvar literate-org-ipynb-tangled-prefix-patterns
     '("Function " "Class " "Import" "@"))
-
 #+END_SRC
 
 ** parse a notebook file
@@ -3713,9 +3708,6 @@ server_thread.start()
 
 print("Django server started on http://127.0.0.1:8000")
 #+END_SRC
-* TODO[0/1]
-- [ ] After reloading a definition in a code block, all modules that depend on the module to which this definition belongs are automatically reloaded.
-- [ ] Add support to noweb with tangle & code format.  
 * References
 - [[https://peps.python.org/pep-0302/][PEP 302 -- New Import Hooks]]
 - [[https://nbdev.fast.ai/tutorials/tutorial.html][nbdev]] (Create delightful software with Jupyter Notebooks)
