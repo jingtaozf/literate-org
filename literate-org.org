@@ -2962,47 +2962,61 @@ opening with =#![allow(...)]=.
 
 ***** How to get the name of a parse node
 
-Dispatch table for =literate-org-node-name=. Name-bearing items pull
-=:name=; =impl_item= renders =impl <Trait> for <Type>= when =:trait=
-is present, else =impl <Type>=; =macro_invocation= prefers =:macro=
-and falls back to source text; =expression_statement= recurses into
-its first child. Constant labels cover use / extern / comment /
-attribute nodes that lack useful names.
+Most of Rust's top-level items are name-bearing (function / struct /
+enum / trait / union / const / static / type / mod / macro_definition)
+and need exactly the same dispatch shape: =(format "<Label> %s"
+(tsc-node-text (tsc-get-child-by-field node :name)))=. The remaining
+nodes either render as a fixed string (use, extern crate, attribute,
+comment, …) or carry per-shape logic (=impl_item= renders
+=impl <Trait> for <Type>=; =macro_invocation= reads =:macro=;
+=expression_statement= unwraps).
+
+We keep two alists — =--name-labels= for the :name-pulling node
+types, =--constant-labels= for the trivial fixed-string ones — and
+one catch-all =cl-defmethod (eql rust)= that consults them. The
+per-shape methods (impl / macro_invocation / expression_statement)
+keep their own =cl-defmethod=s and shadow the catch-all because
+specifying node-type as =(eql X)= is more specific than =t=.
 
 #+BEGIN_SRC elisp
-;; Items that expose a :name field — flat dispatch.
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql function_item)) node)
-  (format "Function %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql struct_item)) node)
-  (format "Struct %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql enum_item)) node)
-  (format "Enum %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql trait_item)) node)
-  (format "Trait %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql union_item)) node)
-  (format "Union %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql const_item)) node)
-  (format "Const %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql static_item)) node)
-  (format "Static %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql type_item)) node)
-  (format "Type %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql mod_item)) node)
-  (format "Mod %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql macro_definition)) node)
-  (format "Macro %s" (tsc-node-text (tsc-get-child-by-field node :name))))
+(defconst literate-org-rust--name-labels
+  '((function_item    . "Function")
+    (struct_item      . "Struct")
+    (enum_item        . "Enum")
+    (trait_item       . "Trait")
+    (union_item       . "Union")
+    (const_item       . "Const")
+    (static_item      . "Static")
+    (type_item        . "Type")
+    (mod_item         . "Mod")
+    (macro_definition . "Macro"))
+  "Rust node types whose section title is \"<label> <:name>\".
+One alist row replaces what used to be ten 3-line `cl-defmethod's.")
 
-;; impl_item — :type required, :trait optional.
+(defconst literate-org-rust--constant-labels
+  '((use_declaration          . "Use")
+    (extern_crate_declaration . "Extern crate")
+    (foreign_mod_item         . "Extern block")
+    (attribute_item           . "Attribute")
+    (inner_attribute_item     . "Inner attribute")
+    (line_comment             . "Comment")
+    (block_comment            . "Comment"))
+  "Rust node types whose section title is a fixed string irrespective
+of node content.")
+
+;; Catch-all: any rust node-type that isn't shadowed by a more
+;; specific cl-defmethod is dispatched by alist lookup.
+(cl-defmethod literate-org-node-name ((_language (eql rust)) node-type node)
+  (cond
+    ((alist-get node-type literate-org-rust--name-labels)
+     (format "%s %s"
+             (alist-get node-type literate-org-rust--name-labels)
+             (tsc-node-text (tsc-get-child-by-field node :name))))
+    ((alist-get node-type literate-org-rust--constant-labels))
+    (t (cl-call-next-method))))
+
+;; impl_item — :type required, :trait optional. Not in the alist
+;; because the result depends on which fields are present.
 (cl-defmethod literate-org-node-name ((_language (eql rust))
                                       (_node-type (eql impl_item)) node)
   (let* ((trait-node (ignore-errors (tsc-get-child-by-field node :trait)))
@@ -3025,29 +3039,6 @@ attribute nodes that lack useful names.
                                       (_node-type (eql expression_statement)) node)
   (let ((inner (tsc-get-nth-child node 0)))
     (literate-org-node-name language (tsc-node-type inner) inner)))
-
-;; Constant labels for trivial nodes.
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql use_declaration)) _node)
-  "Use")
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql extern_crate_declaration)) _node)
-  "Extern crate")
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql foreign_mod_item)) _node)
-  "Extern block")
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql attribute_item)) _node)
-  "Attribute")
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql inner_attribute_item)) _node)
-  "Inner attribute")
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql line_comment)) _node)
-  "Comment")
-(cl-defmethod literate-org-node-name ((_language (eql rust))
-                                      (_node-type (eql block_comment)) _node)
-  "Comment")
 #+END_SRC
 
 ***** get the next code block index
