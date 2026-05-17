@@ -1,0 +1,20 @@
+literate-org.org
+  s_2b96e5872c22c7::t_272d977376ce99 3132-3136,3138-3161,3163,3165,3174,3176,3184,3186
+  s_2b96e5872c22c7::t_ee8f5c0e0ba281 2741-2747,2749-2772,2774,2776,2787-2790,2796-2797,2803-2805,2811,2813
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "847139e72a2148a59b659915c38a04daa6686b24",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
