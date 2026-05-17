@@ -2808,9 +2808,44 @@ their own specialised methods.
 #+END_SRC
 
 ***** get the next code block index
+
+The Python and TSX scanners share the same shape — walk the
+=source_file= children, classify each node as one of:
+
+  - *import-like* (Python =import_statement= / =import_from_statement=,
+    TSX =import_statement=); collapse contiguous runs (including
+    glue comments) into one "Import statements" block.
+
+  - *definition* (Python class / function / decorated_definition;
+    TSX type / enum / interface / lexical_declaration / variable_
+    declarator / export_statement / function_declaration); emit
+    one block per definition titled via =literate-org-node-name=.
+
+  - *expression_statement*: unwrap (Python: docstring / assignment
+    with optional docstring follow-up / fallback; TSX: same path
+    works because the case shape is grammar-agnostic).
+
+  - *trailing comment* on the last child of the source file: emit
+    as its own block when nothing follows.
+
+The Rust scanner uses a different classification (item / use-like /
+prelude with attribute + doc handling) and stays as its own
+=cl-defmethod=. The shared helper accepts the language-specific
+import-type and definition-type sets as parameters so Python and
+TSX collapse to thin wrappers.
+
 #+BEGIN_SRC elisp
-(cl-defmethod literate-org-next-code-block-index ((language (eql python))
-                                                  root start-index)
+(defun literate-org--scan-flat-with-import-group
+    (language root start-index import-types def-types)
+  "Walk ROOT's children from START-INDEX classifying nodes for the
+flat import-then-defs grammar pattern (Python, TSX).
+
+IMPORT-TYPES is a list of node-type symbols treated as import-like.
+DEF-TYPES is a list of node-type symbols treated as definitions —
+each emits its own block titled via `literate-org-node-name'.
+
+Returns =(NEXT-INDEX . TITLE)= as a `values' tuple, matching the
+generic contract of `literate-org-next-code-block-index'."
   (cl-block nil
     (let* ((max-index (1- (tsc-count-children root)))
            (current-index start-index)
@@ -2819,7 +2854,6 @@ their own specialised methods.
            (next-index nil)
            (next-node-type nil)
            (next-node nil)
-           (next-title nil)
            (collected-valid-node-types nil)
            (previous-node nil)
            (previous-node-type nil))
@@ -2838,34 +2872,33 @@ their own specialised methods.
         (setf next-index (1+ current-index)
               next-node (ts-get-nth-child root next-index)
               next-node-type (ts-node-type next-node))
-        (cl-case current-node-type 
-          (comment 
+        (cond
+          ;; Trailing comment after a non-import — close the previous
+          ;; def's block at the comment boundary.
+          ((eq current-node-type 'comment)
            (if (and previous-node-type
-                    (not (find previous-node-type '(comment)) )
-                    (find (first collected-valid-node-types) '(import_statement import_from_statement))
-                    (not (find next-node-type '(import_statement import_from_statement comment))))
+                    (not (eq previous-node-type 'comment))
+                    (memq (first collected-valid-node-types) import-types)
+                    (not (or (memq next-node-type import-types)
+                             (eq next-node-type 'comment))))
              (return (values (1- current-index)
                              (literate-org-node-name
                               language previous-node-type previous-node)))
              (incf current-index)))
-          ((import_statement import_from_statement)
-           (cond ((find next-node-type '(import_statement import_from_statement comment))
+          ;; Import-like run — collapse contiguous imports (with glue comments).
+          ((memq current-node-type import-types)
+           (cond ((or (memq next-node-type import-types)
+                      (eq next-node-type 'comment))
                   (incf current-index))
                  (t
                   (return (values current-index "Import statements")))))
-          (decorated_definition
+          ;; Definition — emit its title and stop.
+          ((memq current-node-type def-types)
            (return (values current-index
                            (literate-org-node-name
                             language current-node-type current-node))))
-          (class_definition
-           (return (values current-index
-                           (literate-org-node-name
-                            language current-node-type current-node))))
-          (function_definition
-           (return (values current-index
-                           (literate-org-node-name
-                            language current-node-type current-node))))
-          (expression_statement
+          ;; expression_statement — unwrap one level, dispatch on inner.
+          ((eq current-node-type 'expression_statement)
            (let* ((first-child-node (ts-get-nth-child current-node 0))
                   (first-child-node-type (ts-node-type first-child-node)))
              (cl-case first-child-node-type
@@ -2876,7 +2909,6 @@ their own specialised methods.
                (string
                 (return (values current-index "Docstring")))
                (assignment
-                ;; if there is a docstring for this assignment, continue to next index
                 (if (and (eq 'expression_statement next-node-type)
                          (eq 'string (ts-node-type (ts-get-nth-child next-node 0))))
                   (incf current-index)
@@ -2889,6 +2921,13 @@ their own specialised methods.
                                  language first-child-node-type first-child-node)))))))
           (t
            (incf current-index)))))))
+
+(cl-defmethod literate-org-next-code-block-index ((language (eql python))
+                                                  root start-index)
+  (literate-org--scan-flat-with-import-group
+   language root start-index
+   '(import_statement import_from_statement)
+   '(decorated_definition class_definition function_definition)))
 #+END_SRC
 
 **** Rust
@@ -3368,86 +3407,22 @@ table, so it lives directly in this section instead of an inner
 #+END_SRC
 
 ***** get the next code block index
+
+Shares the flat import-then-defs scanner with Python via
+=literate-org--scan-flat-with-import-group=; only the import-type
+set and def-type set differ.
+
 #+BEGIN_SRC elisp
 (cl-defmethod literate-org-next-code-block-index ((language (eql tsx))
                                                   root start-index)
-  (cl-block nil
-    (let* ((max-index (1- (tsc-count-children root)))
-           (current-index start-index)
-           (current-node nil)
-           (current-node-type nil)
-           (next-index nil)
-           (next-node-type nil)
-           (next-node nil)
-           (next-title nil)
-           (collected-valid-node-types nil)
-           (previous-node nil)
-           (previous-node-type nil))
-      (while (<= current-index max-index)
-        (setf previous-node current-node)
-        (setf previous-node-type current-node-type)
-        (setf current-node (ts-get-nth-child root current-index))
-        (setf current-node-type (ts-node-type current-node))
-        (unless (eq 'comment current-node-type)
-          (push current-node-type collected-valid-node-types))
-
-        (when (= current-index max-index)
-          (return (values max-index
-                          (literate-org-node-name
-                           language current-node-type current-node))))
-        (setf next-index (1+ current-index)
-              next-node (ts-get-nth-child root next-index)
-              next-node-type (ts-node-type next-node))
-        (case current-node-type 
-          (comment 
-           (if (and previous-node-type
-                    (not (find previous-node-type '(comment)) )
-                    (find (first collected-valid-node-types)
-                          '(import_statement))
-                    (not (find next-node-type
-                               '(import_statement comment))))
-             (return (values (1- current-index)
-                             (literate-org-node-name
-                              language previous-node-type previous-node)))
-             (incf current-index)))
-          (import_statement
-           (cond ((find next-node-type
-                        '(import_statement comment))
-                  (incf current-index))
-                 (t
-                  (return (values current-index "Import statements")))))
-          ((export_statement enum_declaration interface_declaration
-                             type_alias_declaration
-                             lexical_declaration
-                             variable_declarator
-                             function_declaration)
-           (return (values current-index
-                           (literate-org-node-name
-                            language current-node-type current-node))))
-          (expression_statement
-           (let* ((first-child-node (ts-get-nth-child current-node 0))
-                  (first-child-node-type (ts-node-type first-child-node)))
-             (cl-case first-child-node-type
-               (comment
-                (incf next-index)
-                (setf next-node (ts-get-nth-child root next-index))
-                (setf next-node-type (ts-node-type next-node)))
-               (string
-                (return (values current-index "Docstring")))
-               (assignment
-                ;; if there is a docstring for this assignment, continue to next index
-                (if (and (eq 'expression_statement next-node-type)
-                         (eq 'string (ts-node-type (ts-get-nth-child next-node 0))))
-                  (incf current-index)
-                  (return (values current-index
-                                  (literate-org-node-name
-                                   language first-child-node-type first-child-node)))))
-               (t
-                (return (values current-index
-                                (literate-org-node-name
-                                 language first-child-node-type first-child-node)))))))
-          (t
-           (incf current-index)))))))
+  (literate-org--scan-flat-with-import-group
+   language root start-index
+   '(import_statement)
+   '(export_statement enum_declaration interface_declaration
+                      type_alias_declaration
+                      lexical_declaration
+                      variable_declarator
+                      function_declaration)))
 #+END_SRC
 
 ** Export
