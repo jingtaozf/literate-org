@@ -56,7 +56,6 @@
     - [[#import-required-packages][Import required packages]]
     - [[#utility-functions][Utility functions]]
     - [[#dispatches-the-appropriate-inspection-according-to-obj-type][Dispatches the appropriate inspection according to obj type]]
-    - [[#inspect-as-json][inspect as json]]
 - [[#llm-with-code-blocks][LLM with code blocks]]
   - [[#the-provider][the provider]]
   - [[#embed][embed]]
@@ -1160,7 +1159,6 @@ import traceback
 from contextlib import redirect_stdout
 from contextlib import redirect_stderr
 from io import StringIO
-from io import StringIO
 
 import logging
 
@@ -2261,12 +2259,6 @@ def _(obj: datetime) -> dict:
 
 #+END_SRC
 
-*** inspect as json
-#+BEGIN_SRC python
-# def _pyinspect_json(obj):
-#     return json.dumps(_inspect(obj), indent=4, default=lambda o: _pyinspect(o)["value"])
-
-#+END_SRC
 * LLM with code blocks
 :PROPERTIES:
 :literate-lang: elisp
@@ -2419,7 +2411,7 @@ long an org section title may grow before truncation
 (=literate-org-max-title-size=).
 
 #+BEGIN_SRC elisp
-(defcustom literate-org-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea" ".venv" "__pycache__" "__marimo__" "node_modules")
+(defcustom literate-org-ignored-dirs '("__pycache__" ".git" ".vscode" ".idea" ".venv" "__marimo__" "node_modules")
   "The directories to be ignored when importing source files."
   :group 'literate-org)
 #+END_SRC
