@@ -2295,9 +2295,7 @@ to propose hierarchical groupings.
   body
   language
   properties
-  embedding
   summary
-  parent
   level)
 #+END_SRC
 *** summary of a code block
