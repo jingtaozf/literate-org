@@ -2738,20 +2738,42 @@ the trivial node types (=try=, =while=, =string=, =comment=, =import=,
 =import_from_statement=) just return a constant label;
 =expression_statement= recurses into its first child.
 
+Same shape as the Rust / TSX sections: two name-bearing nodes plus
+six trivial constants fold into two =defconst= alists consulted by
+one catch-all =cl-defmethod=. The five nodes with per-shape logic
+(=decorated_definition= chains decorators; =assignment= /
+=augmented_assignment= / =call= truncate via
+=literate-org-max-title-size=; =expression_statement= unwraps) keep
+their own specialised methods.
+
 #+BEGIN_SRC elisp
-;; function_definition — the function's :name field
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql function_definition)) node)
-  (format "Function %s" (tsc-node-text (tsc-get-child-by-field node :name))))
+(defconst literate-org-python--name-labels
+  '((function_definition . "Function")
+    (class_definition    . "Class"))
+  "Python node types whose section title is \"<label> <:name>\".")
 
-;; class_definition — the class's :name field
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql class_definition)) node)
-  (format "Class %s" (tsc-node-text (tsc-get-child-by-field node :name))))
+(defconst literate-org-python--constant-labels
+  '((try_statement         . "Try statement")
+    (while_statement       . "While statement")
+    (string                . "String")
+    (comment               . "Comment")
+    (import                . "Import")
+    (import_from_statement . "Import"))
+  "Python node types whose section title is a fixed string.")
 
-;; decorated_definition — chain of @decorators followed by the underlying definition
+;; Catch-all: alist lookup; on miss, fall through to the generic default.
+(cl-defmethod literate-org-node-name ((_language (eql python)) node-type node)
+  (cond
+    ((alist-get node-type literate-org-python--name-labels)
+     (format "%s %s"
+             (alist-get node-type literate-org-python--name-labels)
+             (tsc-node-text (tsc-get-child-by-field node :name))))
+    ((alist-get node-type literate-org-python--constant-labels))
+    (t (cl-call-next-method))))
+
+;; decorated_definition — chain of @decorators followed by the underlying definition.
 (cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql decorated_definition)) node)
+                                      (_node-type (eql decorated_definition)) node)
   (let* ((name-list nil)
          (index 0)
          (child (tsc-get-nth-child node index)))
@@ -2762,58 +2784,33 @@ the trivial node types (=try=, =while=, =string=, =comment=, =import=,
     (format "@%s: %s" (mapconcat 'identity name-list " ")
             (literate-org-node-name language (tsc-node-type child) child))))
 
-;; assignment — the source text, or its :left child when too long
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql assignment)) node)
+;; assignment / augmented_assignment — source text, or :left child when too long.
+;; Two cl-defmethods because dispatch is on node-type, but body is identical.
+(cl-defmethod literate-org-node-name ((_language (eql python))
+                                      (_node-type (eql assignment)) node)
   (let ((code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length code) literate-org-max-title-size)
       (format "Assignment %s" code)
       (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))))
 
-;; augmented_assignment — same shape as assignment
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql augmented_assignment)) node)
+(cl-defmethod literate-org-node-name ((_language (eql python))
+                                      (_node-type (eql augmented_assignment)) node)
   (let ((code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length code) literate-org-max-title-size)
       (format "Assignment %s" code)
       (format "Assignment %s" (tsc-node-text (tsc-get-child-by-field node :left))))))
 
-;; call — the source text, or its :function child when too long
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql call)) node)
+;; call — source text, or :function child when too long.
+(cl-defmethod literate-org-node-name ((_language (eql python))
+                                      (_node-type (eql call)) node)
   (let ((call-code (dired-replace-in-string "\n" " " (tsc-node-text node))))
     (if (<= (length call-code) literate-org-max-title-size)
       (format "Call %s" call-code)
       (format "Call %s" (tsc-node-text (tsc-get-child-by-field node :function))))))
 
-;; Constant labels for control-flow / scalar nodes that have no useful name.
+;; expression_statement — recurse into the wrapped expression.
 (cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql try_statement)) node)
-  "Try statement")
-
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql while_statement)) node)
-  "While statement")
-
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql string)) node)
-  "String")
-
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql comment)) node)
-  "Comment")
-
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql import)) node)
-  "Import")
-
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql import_from_statement)) node)
-  "Import")
-
-;; expression_statement — recurse into the wrapped expression
-(cl-defmethod literate-org-node-name ((language (eql python))
-                                      (node-type (eql expression_statement)) node)
+                                      (_node-type (eql expression_statement)) node)
   (let ((new-node (tsc-get-nth-child node 0)))
     (literate-org-node-name language (ts-node-type new-node) new-node)))
 #+END_SRC
@@ -3132,28 +3129,40 @@ labels for trivial nodes; =export_statement= and =expression_statement=
 recurse one level into a wrapped node; =lexical_declaration= prepends
 the =:kind= keyword.
 
+Same shape as the Rust section: five name-bearing nodes plus three
+constants are folded into two =defconst= alists, one catch-all
+=cl-defmethod= consults them; the three nodes that carry per-shape
+logic (=export_statement=, =lexical_declaration=,
+=expression_statement=) keep their own specialised methods.
+
 #+BEGIN_SRC elisp
-;; function_declaration — the function's :name field
-(cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql function_declaration)) node)
-  (format "Function %s" (tsc-node-text (tsc-get-child-by-field node :name))))
+(defconst literate-org-tsx--name-labels
+  '((function_declaration   . "Function")
+    (type_alias_declaration . "Type")
+    (enum_declaration       . "Enum")
+    (interface_declaration  . "Interface")
+    (variable_declarator    . "Variable"))
+  "TSX node types whose section title is \"<label> <:name>\".")
 
-;; Constant labels for nodes with no useful name field.
-(cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql string)) node)
-  "String")
+(defconst literate-org-tsx--constant-labels
+  '((string  . "String")
+    (comment . "Comment")
+    (import  . "Import"))
+  "TSX node types whose section title is a fixed string.")
 
-(cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql comment)) node)
-  "Comment")
+;; Catch-all: alist lookup; on miss, fall through to the generic default.
+(cl-defmethod literate-org-node-name ((_language (eql tsx)) node-type node)
+  (cond
+    ((alist-get node-type literate-org-tsx--name-labels)
+     (format "%s %s"
+             (alist-get node-type literate-org-tsx--name-labels)
+             (tsc-node-text (tsc-get-child-by-field node :name))))
+    ((alist-get node-type literate-org-tsx--constant-labels))
+    (t (cl-call-next-method))))
 
+;; export_statement — recurse into :declaration if present, else show :value source.
 (cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql import)) node)
-  "Import")
-
-;; export_statement — recurse into :declaration if present, else show :value source
-(cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql export_statement)) node)
+                                      (_node-type (eql export_statement)) node)
   (format "Export %s"
           (let ((declaration (tsc-get-child-by-field node :declaration)))
             (if declaration
@@ -3162,22 +3171,9 @@ the =:kind= keyword.
                 (if value
                   (tsc-node-text value)))))))
 
-;; type_alias_declaration / enum_declaration / interface_declaration — :name field
+;; lexical_declaration — render as "<kind> <inner-name>" (e.g. "let foo").
 (cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql type_alias_declaration)) node)
-  (format "Type %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-
-(cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql enum_declaration)) node)
-  (format "Enum %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-
-(cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql interface_declaration)) node)
-  (format "Interface %s" (tsc-node-text (tsc-get-child-by-field node :name))))
-
-;; lexical_declaration — render as "<kind> <inner-name>" (e.g. "let foo")
-(cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql lexical_declaration)) node)
+                                      (_node-type (eql lexical_declaration)) node)
   (format "%s %s"
           (tsc-node-text (tsc-get-child-by-field node :kind))
           (let ((sub-node (tsc-get-nth-child node 1)))
@@ -3185,15 +3181,9 @@ the =:kind= keyword.
                                     (tsc-node-type sub-node)
                                     sub-node))))
 
-;; variable_declarator — :name field
+;; expression_statement — recurse into the wrapped expression.
 (cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql variable_declarator)) node)
-  (format "Variable %s"
-          (tsc-node-text (tsc-get-child-by-field node :name))))
-
-;; expression_statement — recurse into the wrapped expression
-(cl-defmethod literate-org-node-name ((language (eql tsx))
-                                      (node-type (eql expression_statement)) node)
+                                      (_node-type (eql expression_statement)) node)
   (let ((new-node (tsc-get-nth-child node 0)))
     (literate-org-node-name language (ts-node-type new-node) new-node)))
 #+END_SRC
