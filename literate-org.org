@@ -544,21 +544,21 @@ move point to the target position.
 :header-args: :results silent :session :tangle no
 :END:
 ** Idea
-Python has a flexible module import system that allows you to customize how modules are imported.
-This enables us to import modules from a different file format (e.g. an org file).
 
-This approach allows you to maintain and organize your Python code blocks in different modules within one .org file
-while dynamically loading it into Python’s namespace.
-It leverages Emacs’ powerful editing capabilities along with
-Python’s flexible import system to create a seamless workflow for developing and running Python code.
+Python's import system is customisable via =sys.meta_path= — a
+=MetaPathFinder= can satisfy =import foo= from any source the finder
+chooses. We hand it org-section content so a single =literate-org.org=
+serves as the package, no on-disk =.py= required at import time.
+Per-block execution in the *target* module's namespace (instead of a
+scratch REPL) keeps the org buffer and the live Python world in sync.
 
-We also provide a way to execute Python code blocks in org files within specified Python modules,
-to allow for a more interactive development experience.
 ** Prototype
 :PROPERTIES:
 :header-args: :results silent :session :tangle no
 :END:
-Let's do some tests in Python.
+
+End-to-end sanity check that =sys.modules= injection plus =exec= into
+=module.__dict__= gives a real, importable module.
 
 1. import the necessary modules
 #+BEGIN_SRC python
@@ -587,19 +587,19 @@ say_hello()
 b()
 #+END_SRC
 
-It works well.
 ** Module Layout in an Org file
-We can organize Python code blocks in org files in the following way:
-- The org sections are used to separate different modules.
-  - The org sections has the same hierarchy as the Python modules.
-  - The Python module name is defined in the property with name =LITERATE_ORG_MODULE= in the section.
-- The Python code blocks in each section are used to define the functions and classes in the module.
-- A code block is loaded conditionally by the org property =LITERATE_ORG_LOAD= or header argument =load=.
-    - The property is not set.
-    - The property is set to =yes=.
-    - The property is found in the environment =LITERATE_ORG_LOAD=.
 
-For example      
+Mapping from org structure to Python packages:
+
+- Each org section with a =:LITERATE_ORG_MODULE:= property *is* a
+  Python module; nesting depth mirrors dotted-module depth.
+- Python =#+begin_src= blocks inside the section contribute its
+  top-level defs, classes, and assignments.
+- A block is loaded only when =LITERATE_ORG_LOAD= is unset, set to
+  =yes=, or matched by the environment variable of the same name —
+  the third case is how test-only blocks stay quiet during normal
+  loading.
+
 #+BEGIN_EXAMPLE
  * Module A
    :PROPERTIES:
@@ -2356,17 +2356,20 @@ If the code is self-explanatory, you may return nothing.")
 :literate-lang: elisp
 :END:
 ** Introduction
-Even though we can write code in org files,
-we still need to sync them with source files,
-especially when we want to share the code with a team or
-import code changes from a team.
+
+Team workflows still want hand-editable =.py= / =.tsx= / =.vue= /
+=.rs= source files — for code review, IDE jump-to-def, or contributors
+who don't run Emacs. Import + export round-trips between those files
+and org sections so the LP form is not a one-way trap.
+
 ** Import
 *** How
-We try to import code from source files to an org file
-by using Emacs's new library [[https://tree-sitter.github.io/tree-sitter/using-parsers][tree-sitter]].
 
-For example, in the following Python code block,
-we can parse the Python code and get the first function name.
+Import parses source via [[https://tree-sitter.github.io/tree-sitter/using-parsers][tree-sitter]] and emits one org section per
+top-level definition. The tree-sitter route avoids per-language
+regex/heuristic parsers and keeps name extraction (function /
+class / variable) grammar-accurate. A minimal proof:
+
 #+BEGIN_SRC elisp :load no
 (with-temp-buffer
     ;; (insert "def say_hello():\n  print('Hello')\n")
@@ -2721,20 +2724,15 @@ live in one src block here rather than spread across separate
 sub-sections — that keeps the table scannable and avoids depth-6
 nesting that an LLM would otherwise drill into without zooming out.
 
-Definition / class / decorated definition pull the =:name= field;
-assignments and calls render the source text (truncated by
-=literate-org-max-title-size= to a left-hand-side or callee fall-back);
-the trivial node types (=try=, =while=, =string=, =comment=, =import=,
-=import_from_statement=) just return a constant label;
-=expression_statement= recurses into its first child.
-
-Same shape as the Rust / TSX sections: two name-bearing nodes plus
-six trivial constants fold into two =defconst= alists consulted by
-one catch-all =cl-defmethod=. The five nodes with per-shape logic
-(=decorated_definition= chains decorators; =assignment= /
-=augmented_assignment= / =call= truncate via
-=literate-org-max-title-size=; =expression_statement= unwraps) keep
-their own specialised methods.
+Two name-bearing nodes plus six trivial constants fold into two
+=defconst= alists consulted by one catch-all =cl-defmethod= (same
+shape used by the Rust and TSX sections). The five nodes with
+per-shape logic keep their own specialised methods:
+=decorated_definition= chains its decorators; =assignment= /
+=augmented_assignment= / =call= truncate the rendered source via
+=literate-org-max-title-size= and fall back to the =:left= /
+=:function= field when over the cap; =expression_statement= unwraps
+its first child.
 
 #+BEGIN_SRC elisp
 (defconst literate-org-python--name-labels
@@ -3149,20 +3147,20 @@ must NOT swallow them — they should slide forward to the next item."
 ***** How to get the name of a parse node
 
 The TSX dispatch table for =literate-org-node-name=. Vue SFC code
-blocks fall through to TSX via =literate-org-alias-language= — note
-that even though this subsection lives under =**** vue=, every
-=cl-defmethod= dispatches on =(eql tsx)=. Same shape as the Python
-table above: name-bearing nodes (function / type alias / enum /
-interface / variable_declarator) pull the =:name= field; constant
-labels for trivial nodes; =export_statement= and =expression_statement=
-recurse one level into a wrapped node; =lexical_declaration= prepends
-the =:kind= keyword.
+blocks fall through to TSX via =literate-org-alias-language= — even
+though this subsection lives under =**** vue=, every =cl-defmethod=
+dispatches on =(eql tsx)=. The =:kind= prefix on =lexical_declaration=
+preserves =let= / =const= / =var= in the section title — losing it
+silently merges three semantically different declarations into one
+heading.
 
-Same shape as the Rust section: five name-bearing nodes plus three
-constants are folded into two =defconst= alists, one catch-all
-=cl-defmethod= consults them; the three nodes that carry per-shape
-logic (=export_statement=, =lexical_declaration=,
-=expression_statement=) keep their own specialised methods.
+Same alist-pair-plus-catch-all shape as the Python and Rust
+sections: five name-bearing nodes (function / type alias / enum /
+interface / variable_declarator) plus three constants (string,
+comment, import) fold into two =defconst=s; the three per-shape
+methods (=export_statement= recurses into =:declaration= or =:value=,
+=lexical_declaration= prepends =:kind=, =expression_statement=
+unwraps) keep their own specialised dispatch.
 
 #+BEGIN_SRC elisp
 (defconst literate-org-tsx--name-labels

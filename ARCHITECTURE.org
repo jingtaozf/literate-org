@@ -7,9 +7,8 @@ This file is the *invariant ledger* — what's true about the system that
 isn't obvious from reading any single file. Future-you (and any future
 agent) reads this first.
 
-It is intentionally *not* tangled. Plain prose only. If a fact here
-contradicts the code, the code is wrong (this is the strict-LP discipline
-turned outward — the doc is the spec).
+If a fact here contradicts the code, the code is wrong: the doc is the
+spec, not a description.
 
 * Module map
 
