@@ -1,0 +1,46 @@
+rules/literate-programming-document-first.md
+  s_2b96e5872c22c7::t_1e35862b1faf5f 274-303
+hints/dual-audience-checklist.org
+  s_2b96e5872c22c7::t_5c2acb15610b74 1-120
+rules/lp-stable-anchors-for-multi-referenced-sections.md
+  s_2b96e5872c22c7::t_08a2bc6dc88cd4 70-95
+rules/lp-transfer-discipline-no-weak-metaphors.md
+  s_2b96e5872c22c7::t_a6bd61da855f18 1-125
+CLAUDE.md
+  s_2b96e5872c22c7::t_5ab7b5d9ecfc05 106-111
+  s_2b96e5872c22c7::t_b7c2ffc3a91533 49-60
+rules/lp-module-section-hierarchy.md
+  s_2b96e5872c22c7::t_cb7a75d52bc28d 203-229
+commands/lp-research-audit.md
+  s_2b96e5872c22c7::t_71509c01733ea2 1-112
+docs/transfer-gradient.org
+  s_2b96e5872c22c7::t_4815dd903745ca 1-160
+README.org
+  s_2b96e5872c22c7::t_f108c355735015 21,23-24,26
+rules/lp-prose-no-self-narration.md
+  s_2b96e5872c22c7::t_1cc142c404c3b3 125-145
+rules/lp-agent-persistence-hooks.md
+  s_2b96e5872c22c7::t_d0db281005739a 1-95
+skills/lp-dual-audience-check/SKILL.md
+  s_2b96e5872c22c7::t_13533584573042 1-79
+rules/lp-load-bearing-affordances-structural.md
+  s_2b96e5872c22c7::t_7066bbf38d8564 1-98
+hints/README.org
+  s_2b96e5872c22c7::t_1ad6c232361a17 37-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "7a1ec20925d8fd649dfcad05324fdfd373b390ce",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
