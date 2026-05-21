@@ -1,0 +1,19 @@
+scripts/audit_anchor_coverage.py
+  s_2b96e5872c22c7::t_28eb4f41738866 1-215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "6bcf3454353a5016560f30a609c18df286dab930",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
