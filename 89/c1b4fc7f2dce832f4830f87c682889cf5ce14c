@@ -1,0 +1,25 @@
+rules/lp-cowork-review-expectation.md
+  s_2b96e5872c22c7::t_130bd1ca88e0f4 1-87
+CLAUDE.md
+  s_2b96e5872c22c7::t_0c8efc93fcbe8d 79-84
+rules/lp-cowork-genre-conformance.md
+  s_2b96e5872c22c7::t_41462e3be0b831 1-108
+rules/lp-cowork-boundary-object-evolution.md
+  s_2b96e5872c22c7::t_9e12f84cbf7ae2 1-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "89c1b4fc7f2dce832f4830f87c682889cf5ce14c",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
