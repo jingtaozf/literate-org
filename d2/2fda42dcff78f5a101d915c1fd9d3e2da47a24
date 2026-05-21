@@ -1,0 +1,31 @@
+rules/lp-agent-convergent-regression-defence.md
+  s_2b96e5872c22c7::t_21eb1bd9a2ee1b 1-123
+rules/lp-agent-internal-citation-verification.md
+  s_2b96e5872c22c7::t_bf8ab6c5d8a141 1-129
+rules/lp-agent-multi-agent-coordination.md
+  s_2b96e5872c22c7::t_70e3f0442bac21 1-121
+docs/agent-native-phenomena.org
+  s_2b96e5872c22c7::t_e9a4991f0b9e3f 1-149
+CLAUDE.md
+  s_2b96e5872c22c7::t_717b296f98b282 85-102
+rules/lp-agent-long-horizon-audit-cadence.md
+  s_2b96e5872c22c7::t_9aba904fff92ac 1-118
+rules/lp-agent-capability-aware-task-assignment.md
+  s_2b96e5872c22c7::t_3c9f23aee77b08 1-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "d22fda42dcff78f5a101d915c1fd9d3e2da47a24",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
