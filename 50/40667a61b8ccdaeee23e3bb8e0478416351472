@@ -1,0 +1,32 @@
+hooks/block-tangled-edit.sh
+  s_de2379fa012956::t_881ee914ce2ec6 48-51,64-72,75-81
+hooks/lib/tangle_lookup.py
+  s_de2379fa012956::t_4f7fb7278a2e6c 292-294,300-303,305-306,308,320-322,326-327,329,338-343,353-359,362-366,368,370,372,375-399
+  s_de2379fa012956::t_bd6dcde9af8411 94-206
+  s_de2379fa012956::t_42c639411234de 274-285,287
+  s_de2379fa012956::t_ea015a344f7d9f 439-442,447-449,451-469,471,474-477,481-482,486,494-497,500-503,517,520,522-523,528,541-547,551-556,558-564,566,577,579,582-586
+hooks/block-bash-tangle-write.sh
+  s_de2379fa012956::t_d218cc5deb24ad 409-413,421-424
+  s_de2379fa012956::t_fbc77462eae032 42
+  s_de2379fa012956::t_37cea27abcc223 331,334-338,341,346-347,352-367
+  s_de2379fa012956::t_adb8f6904541a2 370
+hooks/test_cross_project.py
+  s_de2379fa012956::t_ede45b7c905068 1-106,111-112,114,116-117,119-122,124,126-127,129-388
+  s_de2379fa012956::t_2507d8ed8cd315 107-110,113,115,118,123,125,128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "5040667a61b8ccdaeee23e3bb8e0478416351472",
+  "prompts": {},
+  "sessions": {
+    "s_de2379fa012956": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aae50d36-0d7c-47ad-8925-ecbf0e74997a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
