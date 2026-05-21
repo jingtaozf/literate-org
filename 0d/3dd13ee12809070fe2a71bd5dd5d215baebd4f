@@ -1,0 +1,23 @@
+rules/lp-agent-long-horizon-audit-cadence.md
+  s_2b96e5872c22c7::t_3929bb7d4aa4af 112-139,143-144,148-149
+commands/lp-cowork-review.md
+  s_2b96e5872c22c7::t_a52f8d733b1755 51-74
+rules/lp-stable-anchors-for-multi-referenced-sections.md
+  s_2b96e5872c22c7::t_d2bc89430dbe76 71-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "0d3dd13ee12809070fe2a71bd5dd5d215baebd4f",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
