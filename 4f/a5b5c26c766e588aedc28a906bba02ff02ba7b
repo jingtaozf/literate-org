@@ -1,0 +1,38 @@
+commands/lp-cowork-review.md
+  s_2b96e5872c22c7::t_488ff1c88513bc 1-120
+docs/cowork-research.org
+  s_2b96e5872c22c7::t_e6397606350009 1-158
+rules/lp-cowork-stake-declaration.md
+  s_2b96e5872c22c7::t_f276291f293675 1-104
+CLAUDE.md
+  s_2b96e5872c22c7::t_acca9113344009 61-78
+hints/README.org
+  s_2b96e5872c22c7::t_8b5726c7657f30 42
+  s_2b96e5872c22c7::t_2703b4e623c51d 54-59
+rules/lp-cowork-anti-sycophancy.md
+  s_2b96e5872c22c7::t_42e3d86796c6e4 1-135
+hints/cowork-failure-modes.org
+  s_2b96e5872c22c7::t_45bf0665eea499 1-131
+rules/lp-cowork-handoff-template.md
+  s_2b96e5872c22c7::t_55281a8c4bbb70 1-157
+rules/lp-cowork-persistence-stack.md
+  s_2b96e5872c22c7::t_5cce83fc5bcbc5 1-120
+rules/lp-cowork-propose-before-edit.md
+  s_2b96e5872c22c7::t_5a3123f62f16c2 1-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "4fa5b5c26c766e588aedc28a906bba02ff02ba7b",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
