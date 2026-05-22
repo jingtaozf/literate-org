@@ -1,0 +1,25 @@
+CLAUDE.md
+  s_2b96e5872c22c7::t_9a4b24c4204c39 103-112
+skills/lp-resync/SKILL.md
+  s_2b96e5872c22c7::t_1ba94b3f856722 1-325
+rules/lp-resync-metadata.md
+  s_2b96e5872c22c7::t_91cb4de4b3ce6c 1-125
+rules/lp-resync-noweb-discipline.md
+  s_2b96e5872c22c7::t_20021c56fd23e7 1-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "d584e3f6c4ec243458354ac26c2334678c564808",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
