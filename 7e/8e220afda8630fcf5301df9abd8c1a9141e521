@@ -1,0 +1,23 @@
+rules/lp-resync-metadata.md
+  s_2b96e5872c22c7::t_4bc7f5b54f343c 80-105
+scripts/audit_lp_sync_metadata.py
+  s_2b96e5872c22c7::t_38a3a226f81cb8 1-304
+scripts/lp_sync_bootstrap.py
+  s_2b96e5872c22c7::t_eb3cc191a16774 1-373
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "7e8e220afda8630fcf5301df9abd8c1a9141e521",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
