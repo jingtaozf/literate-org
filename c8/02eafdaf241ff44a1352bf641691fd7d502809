@@ -1,0 +1,22 @@
+scripts/lp_sync_engine.py
+  s_2b96e5872c22c7::t_eb3a230c764399 499-500,502-544
+  s_2b96e5872c22c7::t_900191ab136b87 1-498,501,545-634,638,642-687,797-798
+  s_2b96e5872c22c7::t_a169c0cd05a075 635-637,639-641
+  s_2b96e5872c22c7::t_5148375ea4c1e6 688-796
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "c802eafdaf241ff44a1352bf641691fd7d502809",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
