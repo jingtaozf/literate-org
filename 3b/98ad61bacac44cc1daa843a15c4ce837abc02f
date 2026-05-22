@@ -1,0 +1,20 @@
+draft.org
+  s_2b96e5872c22c7::t_075d88ab051e14 183-329,335-338
+  s_2b96e5872c22c7::t_3a1c592fd1b370 1-182,330-334
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "3b98ad61bacac44cc1daa843a15c4ce837abc02f",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
