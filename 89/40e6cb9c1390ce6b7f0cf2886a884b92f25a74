@@ -1,0 +1,28 @@
+scripts/lp_protocol_verify.py
+  s_2b96e5872c22c7::t_b6f1ca96bbcb78 1-168,173-284,293-449
+  s_2b96e5872c22c7::t_40d52d92980dc3 169-172
+  s_2b96e5872c22c7::t_dc539354258a09 285-292
+scripts/lp_sync_engine.py
+  s_2b96e5872c22c7::t_38acada8896457 497-498,500-510
+  s_2b96e5872c22c7::t_2e263d5c3bc695 279-287
+  s_2b96e5872c22c7::t_49b9e2d9c1e906 535-544,546-547,552-555,559-560,565-568
+  s_2b96e5872c22c7::t_78933a06e7a4d0 368-376,378,387
+  s_2b96e5872c22c7::t_c7d6cffb02323e 525-531,534,545,548-551,556-558,561-564
+  s_2b96e5872c22c7::t_0377ddb22029dd 468-470,487,489-491,493-496
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "8940e6cb9c1390ce6b7f0cf2886a884b92f25a74",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
