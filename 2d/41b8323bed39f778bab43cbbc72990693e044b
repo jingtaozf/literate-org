@@ -1,0 +1,27 @@
+scripts/__init__.py
+  s_2b96e5872c22c7::t_d897d48028c61e 1-13
+.pre-commit-config.yaml
+  s_2b96e5872c22c7::t_f8a705b1b9f5fa 1-20
+pyproject.toml
+  s_2b96e5872c22c7::t_a0d141309ec613 1-42
+.pre-commit-hooks.yaml
+  s_2b96e5872c22c7::t_a6ca3b5d5547d1 1-45
+CLAUDE.md
+  s_2b96e5872c22c7::t_e3c7619ab2b929 167-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "2d41b8323bed39f778bab43cbbc72990693e044b",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
