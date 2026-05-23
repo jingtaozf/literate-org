@@ -1,0 +1,37 @@
+scripts/lp_sync_engine.py
+  s_2b96e5872c22c7::t_4f377af8e4aeba 131,133-166,169-176,178-179,182-319,327-328,330-333
+  s_2b96e5872c22c7::t_651734485a1eff 502-504,507-509,511
+  s_2b96e5872c22c7::t_0ce771e7bc4cf5 903-1000,1005-1007
+  s_2b96e5872c22c7::t_a4131bd97d5537 849-861
+  s_2b96e5872c22c7::t_bccddf80b70a0f 1061-1066
+  s_2b96e5872c22c7::t_860290b5be7c62 1098-1099,1101-1105,1107,1110
+  s_2b96e5872c22c7::t_ab6ec98418c4bf 132,167-168,177,180-181,320-326,329,334-340
+  s_2b96e5872c22c7::t_3a8a5b89c99f57 1052-1055
+scripts/lp_sync_bootstrap.py
+  s_2b96e5872c22c7::t_def7e4ec1eabf0 337-338
+  s_2b96e5872c22c7::t_161e6f7d096855 301-317
+  s_2b96e5872c22c7::t_d5f6abce96fbd4 173-201,203,205-207
+  s_2b96e5872c22c7::t_e523443c40fc2f 202,204,208
+  s_2b96e5872c22c7::t_e8d09c49620f2d 379
+  s_2b96e5872c22c7::t_1f6d4718988c3a 399-402
+  s_2b96e5872c22c7::t_e1eba13573bea5 420
+  s_2b96e5872c22c7::t_eb1b527397c8ee 369-371
+  s_2b96e5872c22c7::t_be5f3382592407 264,268-270
+  s_2b96e5872c22c7::t_6dae7922d86116 107-115,118-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "292756c3a12c34d1fb1171d42a2092b53050a5e4",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
