@@ -1,0 +1,21 @@
+docs/lp-resync-runbook.org
+  s_2b96e5872c22c7::t_df82f299618aec 1-367
+.github/workflows/ci.yml
+  s_2b96e5872c22c7::t_a7d6e53a4e2415 69-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "a29157b3b7e0102729c33e0d6afd4c78b74f1e78",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
