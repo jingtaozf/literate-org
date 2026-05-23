@@ -1,0 +1,19 @@
+scripts/audit_lp_sync_metadata.py
+  s_2b96e5872c22c7::t_bd11ec43cc957a 62,68-71,80-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "b18804e7c7708d0d58362e0a9b43a8b63e24d4d4",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
