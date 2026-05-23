@@ -1,0 +1,19 @@
+docs/lp-resync-runbook.org
+  s_2b96e5872c22c7::t_70700701a82859 286-311
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "c14aeecccf0117532acf48b5379959574f610a78",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
