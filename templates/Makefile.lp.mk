@@ -64,9 +64,15 @@ build-tangle-map:
 build-index:
 	python3 $(LITERATE_AGENT_HOME)/scripts/build_index.py $(BUILD_INDEX_ARGS)
 
-# Regenerate root README + per-submodule READMEs from .org metadata.
-build-readme:
-	python3 $(LITERATE_AGENT_HOME)/scripts/build_readme.py
+# Regenerate root README + per-submodule overview files from .org
+# metadata. Output files are configured via the `[groups.*]` entries
+# in `.literate-agent/buckets.toml`.
+build-overviews:
+	python3 $(LITERATE_AGENT_HOME)/scripts/build_overviews.py
+
+# Backward-compat alias — historical target name; remove when all
+# consumer projects migrated to `make build-overviews`.
+build-readme: build-overviews
 
 # ── drift audit ───────────────────────────────────────────────────────────
 
@@ -83,4 +89,5 @@ measure-docs-first:
 	$(LITERATE_AGENT_HOME)/scripts/measure-docs-first.sh
 
 .PHONY: tangle tangle-all check-structure build-tangle-map \
-        build-index build-readme check-tangle-drift measure-docs-first
+        build-index build-overviews build-readme \
+        check-tangle-drift measure-docs-first

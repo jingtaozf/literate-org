@@ -39,7 +39,7 @@ your-project/
 
 That's it. literate-agent's doctrine + skills + hooks + commands
 become available; placeholders in any rendered doc (via
-`build_readme.py`) expand using your `config.toml`.
+`build_overviews.py`) expand using your `config.toml`.
 
 ## Where to read next
 

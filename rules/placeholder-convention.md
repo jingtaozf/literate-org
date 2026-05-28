@@ -5,7 +5,7 @@
 > *Origin*: 2026-05-27 OSS-publish scrub of literate-agent identified
 > hardcoded "claude-agent" references in rules. Switching to shell-style
 > placeholders makes the rules truly project-neutral and lets
-> `scripts/build_readme.py` / `scripts/build_index.py` render consumer-
+> `scripts/build_overviews.py` / `scripts/build_index.py` render consumer-
 > specific output without find/replace.
 
 literate-agent rules are read by AI agents and human authors working
@@ -75,7 +75,7 @@ When writing or editing a rule under `rules/*.md`:
 
 ## Renderer behaviour
 
-`scripts/build_readme.py` reads the consumer's
+`scripts/build_overviews.py` reads the consumer's
 `.literate-agent/config.toml` (discovered upward from CWD), builds an
 expansion dict, and `string.Template(text).safe_substitute(dict)`
 each rule before writing to the consumer's destination README. Unknown

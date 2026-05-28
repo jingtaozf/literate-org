@@ -1,13 +1,13 @@
 ---
 name: rebuild-lp-readme
-description: Regenerate the LP-layer entry-point documents — root README.org, every lp/<group>/README.org, and lp/INDEX.org — from the current state of lp/**/*.org. Use when the user asks to "rebuild readmes", "regenerate lp index", "refresh lp entry points", "rebuild lp/INDEX.org", "rebuild root README", or after adding/removing/renaming any lp/<group>/<file>.org so the indexes stay in sync. The skill is *idempotent and deterministic*: per-group narrative (elevator pitch / file role mapping / read order) lives in scripts/build_readme.py; per-file index rows are auto-rebuilt from each .org's #+TITLE; INDEX.org is regenerated from the same metadata via scripts/build_index.py.
+description: Regenerate the LP-layer entry-point documents — root README.org, every lp/<group>/README.org, and lp/INDEX.org — from the current state of lp/**/*.org. Use when the user asks to "rebuild readmes", "regenerate lp index", "refresh lp entry points", "rebuild lp/INDEX.org", "rebuild root README", or after adding/removing/renaming any lp/<group>/<file>.org so the indexes stay in sync. The skill is *idempotent and deterministic*: per-group narrative (elevator pitch / file role mapping / read order) lives in scripts/build_overviews.py; per-file index rows are auto-rebuilt from each .org's #+TITLE; INDEX.org is regenerated from the same metadata via scripts/build_index.py.
 ---
 
 # Rebuild LP READMEs + INDEX
 
 > *Origin*: <meta-repo>. The skill is project-shaped to that repo's
 > multi-submodule layout (`lp/<group>/<file>.org`) and its specific
-> `scripts/build_readme.py` / `scripts/build_index.py`. Adapt the
+> `scripts/build_overviews.py` / `scripts/build_index.py`. Adapt the
 > script paths and the per-group narrative when porting to another
 > LP project.
 
@@ -43,7 +43,7 @@ User says any of:
   (the new file's `#+TITLE` won't appear in the indexes until they
   regenerate)
 - After onboarding a new submodule (the group's narrative needs to
-  be added to `GROUP_NARRATIVE` in `scripts/build_readme.py`, then
+  be added to `GROUP_NARRATIVE` in `scripts/build_overviews.py`, then
   re-run)
 
 ## Hard rules
@@ -51,7 +51,7 @@ User says any of:
 1. **Don't hand-edit the generated files.** Root `README.org`, every
    `lp/<group>/README.org`, and `lp/INDEX.org` are
    *generated*. Edit the templates / metadata in
-   `scripts/build_readme.py` and `scripts/build_index.py` instead,
+   `scripts/build_overviews.py` and `scripts/build_index.py` instead,
    then re-run. The generated files carry no "DO NOT EDIT" header
    (per the project rule) — the convention is enforced socially
    and by this skill.
@@ -77,7 +77,7 @@ User says any of:
 
 None — the skill regenerates everything in scope. Optional flag:
 
-- `--check` (on `scripts/build_readme.py`): don't write; exit 1 if
+- `--check` (on `scripts/build_overviews.py`): don't write; exit 1 if
   any generated file would change. Useful as a pre-commit gate.
 
 ## Procedure
@@ -85,7 +85,7 @@ None — the skill regenerates everything in scope. Optional flag:
 ### Step 1 — Regenerate the per-group + root READMEs
 
 ```bash
-uv run python scripts/build_readme.py
+uv run python scripts/build_overviews.py
 ```
 
 Writes `README.org` at the repo root and every `lp/<group>/README.org`
@@ -95,7 +95,7 @@ If a new submodule has been added but its narrative isn't yet in
 `GROUP_NARRATIVE`, the script will print `SKIP (missing): <grp>` and
 that group's README will NOT be regenerated. To fix:
 
-- Open `scripts/build_readme.py`.
+- Open `scripts/build_overviews.py`.
 - Add a new entry to `GROUP_NARRATIVE` keyed by the submodule's
   directory name under `lp/`. Required keys: `elevator` (one
   paragraph), `groups` (list of `(label, role)` tuples for "How
@@ -122,7 +122,7 @@ top-level directory, and renders:
 
 If a new submodule was added, the per-group elevator pitch in
 `GROUP_ELEVATOR` also needs an entry. Same pattern as
-`GROUP_NARRATIVE` in `build_readme.py` — keyed by the directory
+`GROUP_NARRATIVE` in `build_overviews.py` — keyed by the directory
 name.
 
 ### Step 3 — Verify
@@ -173,7 +173,7 @@ old name still appears in the per-group `groups` list inside
 ### Step 5 (when in CI / pre-commit) — Drift gate
 
 ```bash
-uv run python scripts/build_readme.py --check
+uv run python scripts/build_overviews.py --check
 ```
 
 Exits 1 if any generated README would change. Use as a Bitbucket
@@ -189,7 +189,7 @@ editing source `.org` titles.
   with a brand-new `#+TITLE`, the per-group README will pick it up
   but `lp/INDEX.org` won't until you re-run `build_index.py`.
 - **Adding a new submodule without updating both scripts.** Both
-  `scripts/build_readme.py` (`GROUP_NARRATIVE` + `ROOT_BUCKETS`)
+  `scripts/build_overviews.py` (`GROUP_NARRATIVE` + `ROOT_BUCKETS`)
   and `scripts/build_index.py` (`GROUP_ELEVATOR`) need the new
   entry — otherwise the new group is silently invisible in the
   generated indexes.
@@ -205,15 +205,15 @@ After adding a new submodule `repos/new-sub/`:
 mkdir lp/new-sub
 $EDITOR lp/new-sub/_project.org
 
-# 2. Add GROUP_NARRATIVE entry in scripts/build_readme.py
-$EDITOR scripts/build_readme.py
+# 2. Add GROUP_NARRATIVE entry in scripts/build_overviews.py
+$EDITOR scripts/build_overviews.py
 # (also append the new submodule to one of ROOT_BUCKETS)
 
 # 3. Add GROUP_ELEVATOR entry in scripts/build_index.py
 $EDITOR scripts/build_index.py
 
 # 4. Regenerate everything
-uv run python scripts/build_readme.py
+uv run python scripts/build_overviews.py
 uv run python scripts/build_index.py
 
 # 5. Audit

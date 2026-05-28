@@ -15,7 +15,7 @@ Before this file:
 - Rules in =rules/*.md= hardcoded "claude-agent" / "edo-literate"
   / "skill-scout-server" — every consumer had to fork the rules
   to make examples make sense.
-- =scripts/build_readme.py= had project-specific narrative dicts
+- =scripts/build_overviews.py= had project-specific narrative dicts
   baked in.
 - A new consumer onboarding hit "find/replace 24 files" as the
   first step.
@@ -24,7 +24,7 @@ With this file:
 
 - Rules carry =${PROJECT_NAMESPACE}= placeholders; renderer
   expands per consumer.
-- =build_readme.py= + =build_index.py= load TOML, pick template,
+- =build_overviews.py= + =build_index.py= load TOML, pick template,
   emit consumer-tailored output.
 - Onboarding = drop one TOML file + =@-import literate-agent= +
   done.
