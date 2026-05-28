@@ -1,0 +1,23 @@
+skills/rebuild-lp-readme/SKILL.md
+  s_9e5b6f705733b7::t_5ac1d3347d6a13 29-31
+rules/lp-module-section-hierarchy.md
+  s_9e5b6f705733b7::t_96c708a6a80415 3,26-33
+hooks/tangle-org-buffer.sh
+  s_9e5b6f705733b7::t_e8fb7ee50bec71 2,4,6-11,14-20,39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bd13996ca5fd77fa44d54e017ad48edc419633c6",
+  "prompts": {},
+  "sessions": {
+    "s_9e5b6f705733b7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "edb02e6d-dac5-4474-9237-c237419cb451",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
