@@ -1,0 +1,25 @@
+literate-org.org
+  s_2b96e5872c22c7::t_ac319f2b012a8c 548-553,559-561
+  s_2b96e5872c22c7::t_624f080068592d 592-602
+  s_2b96e5872c22c7::t_386b1eeb1307a5 2359-2364,2368-2372
+  s_2b96e5872c22c7::t_022663af1225b5 2727-2735
+  s_2b96e5872c22c7::t_67f908b163c06b 3150-3163
+ARCHITECTURE.org
+  s_2b96e5872c22c7::t_aadf6fd351c4d7 10-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "76ba7f389c129c1fe6b5fa43578b89640084bc1f",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}

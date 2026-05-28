@@ -1,0 +1,31 @@
+.claude/hooks/tangle-org-buffer.sh
+  c64dc2a0252e72ae 1-58
+Makefile
+  c64dc2a0252e72ae 7-31
+.claude/hooks/block-tangled-edit.sh
+  c64dc2a0252e72ae 1-54
+.claude/settings.local.json
+  c64dc2a0252e72ae 13-17,20-43,45
+literate-org.org
+  c64dc2a0252e72ae 127,135,200-277,1032-1033,1330
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9b5564e718511e0091130d76ead02043fb7e71c5",
+  "prompts": {
+    "c64dc2a0252e72ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "664ffb06-956f-4baf-89b9-5bcf26d39894",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu",
+      "messages": [],
+      "total_additions": 120,
+      "total_deletions": 2,
+      "accepted_lines": 305,
+      "overriden_lines": 0
+    }
+  }
+}

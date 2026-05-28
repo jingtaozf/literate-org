@@ -1,0 +1,27 @@
+pyproject.toml
+  c64dc2a0252e72ae 7-10
+MANIFEST.in
+  c64dc2a0252e72ae 3-5
+.gitignore
+  c64dc2a0252e72ae 1,8,10,18,24,26,32-33,37-39,41-42,45,47-50,52,56-57,59-60,62-63,65,69-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "d5424b6b01334c78fb25f6f5d6dbb089fb193974",
+  "prompts": {
+    "c64dc2a0252e72ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "664ffb06-956f-4baf-89b9-5bcf26d39894",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu",
+      "messages": [],
+      "total_additions": 39,
+      "total_deletions": 310,
+      "accepted_lines": 236,
+      "overriden_lines": 0
+    }
+  }
+}

@@ -1,0 +1,32 @@
+literate-org.org
+  s_2b96e5872c22c7::t_71a71b00e03bad 2913-3076,3081-3085,3087-3096,3106-3114,3119-3121,3124,3127-3146
+  s_2b96e5872c22c7::t_41e32975c820c0 3077-3080,3086
+  s_2b96e5872c22c7::t_aeb5676a931ba2 3097-3105
+  s_c64dc2a0252e72::t_d40c4778bddb86 513-514
+  s_2b96e5872c22c7::t_029b61c1ae539b 3115-3118,3122-3123,3125-3126
+  s_c64dc2a0252e72::t_28d3ba815740c4 535-536
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "9c04ba501d30746e64b18d63313f5c7121a87aee",
+  "prompts": {},
+  "sessions": {
+    "s_2b96e5872c22c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bb226149-09a4-4ba5-9a38-ed224ee4a345",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    },
+    "s_c64dc2a0252e72": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "664ffb06-956f-4baf-89b9-5bcf26d39894",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}

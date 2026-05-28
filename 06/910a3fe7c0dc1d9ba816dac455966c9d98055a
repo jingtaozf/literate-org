@@ -1,0 +1,33 @@
+.claude/rules/literate-org-document-first.md
+  c64dc2a0252e72ae 26-50
+tasks/lessons.md
+  c64dc2a0252e72ae 1-33
+.claude/settings.local.json
+  c64dc2a0252e72ae 17-18
+CLAUDE.md
+  c64dc2a0252e72ae 3-6,8,10-17,19,22-28,31,33-34,36-37,39,41,43-49,51,53-57,59,61-63
+.pre-commit-config.yaml
+  c64dc2a0252e72ae 4,6-7,9-27
+Makefile
+  c64dc2a0252e72ae 32-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "06910a3fe7c0dc1d9ba816dac455966c9d98055a",
+  "prompts": {
+    "c64dc2a0252e72ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "664ffb06-956f-4baf-89b9-5bcf26d39894",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu",
+      "messages": [],
+      "total_additions": 144,
+      "total_deletions": 386,
+      "accepted_lines": 196,
+      "overriden_lines": 0
+    }
+  }
+}

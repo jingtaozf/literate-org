@@ -1,0 +1,23 @@
+literate-org.org
+  c64dc2a0252e72ae 587-593,599,660-668,674,1985-1990,1995,2211-2218,2230-2231,2236,2262,2327-2332,2463-2476,2484,2519,2564
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "0832e4b34c4009fd00a36882eab05c70d8b8ee75",
+  "prompts": {
+    "c64dc2a0252e72ae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "664ffb06-956f-4baf-89b9-5bcf26d39894",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu",
+      "messages": [],
+      "total_additions": 60,
+      "total_deletions": 20,
+      "accepted_lines": 114,
+      "overriden_lines": 0
+    }
+  }
+}
