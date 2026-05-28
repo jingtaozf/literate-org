@@ -1,0 +1,69 @@
+#+TITLE: literate-agent hints
+#+SUBTITLE: Language-specific LP traps and conventions (lazy-loaded)
+#+OPTIONS: toc:nil num:nil
+
+The =hints/= folder holds *language-specific* literate-programming
+notes. Each file documents the traps, formatter conventions, and
+reload discipline for one language.
+
+* Why a separate folder
+
+The rules under =rules/= are *project-neutral LP doctrine* — they
+explain why LP, what "document first" means, what NEVER to do. They
+get eagerly loaded into Claude Code's context via the =CLAUDE.md=
+aggregator's =@-import= lines.
+
+Hints are *operational details* that only matter when actually
+editing code in a specific language. Loading them all eagerly would
+bloat the context window of a single-language project. Instead,
+each hint has a companion skill in =skills/lp-hint-<lang>/= that
+auto-activates when Claude edits a file in that language.
+
+* When to consult a hint
+
+| You're editing | Consult |
+|----------------+---------|
+| =.el= file | =hints/elisp.org= |
+| =.org= file with =#+BEGIN_SRC elisp= blocks | =hints/elisp.org= |
+| =.py= file (when tangle isn't blocking direct edits) | =hints/python.org= |
+| =.org= file with =#+BEGIN_SRC python= blocks | =hints/python.org= |
+
+Each hint file is short (under 200 lines) and structured as
+=Trap → Symptom → Workaround=. Read top-to-bottom on first
+exposure to a language; refer back when the symptom matches.
+
+* Currently shipped
+
+| File | Scope | Status |
+|------+-------+--------|
+| =elisp.org= | language (.el) | Stable |
+| =python.org= | language (.py) | Stable |
+| =dual-audience-checklist.org= | cross-audience LP review | Stable |
+| =cowork-failure-modes.org= | human+agent cowork drift modes | Stable |
+| =typescript.org= | language (.ts/.tsx) | (not yet) |
+| =rust.org= | language (.rs) | (not yet) |
+| =clojure.org= | language (.clj) | (not yet) |
+
+The =dual-audience-checklist.org= is *not* language-specific — it
+applies to any literate `.org` section regardless of the language
+inside `#+BEGIN_SRC`. It's auto-activated by the
+=lp-dual-audience-check= skill when the user asks to "review section"
+or after editing an `.org` section. See the file for the 6-point
+checklist + research grounding.
+
+The =cowork-failure-modes.org= is for *cowork* situations
+(human + AI agent author pair) and documents the five drift modes
+unique to that mode (sycophancy / tone drift / convergent regression
+/ citation hallucination / stake mismatch). Use the =/lp-cowork-review=
+command to mechanise the diagnoses on a PR diff or git range.
+
+* Adding a new language
+
+1. Create =hints/<lang>.org= using the structure of =elisp.org= as
+   a template (Trap → Symptom → Workaround).
+2. Create =skills/lp-hint-<lang>/SKILL.md= with frontmatter:
+   - =paths: "**/*.<ext>"= so Claude Code auto-activates the skill
+   - =description= that names the language + the highest-value trap
+   - Body that points at =hints/<lang>.org= + summarises top 3 traps
+3. Add a row to the table in this README and to the
+   "Language-specific LP hints" section in =../CLAUDE.md=.
