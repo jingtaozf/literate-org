@@ -1,0 +1,21 @@
+scripts/build_readme.py
+  s_a20781a201d1ed::t_9e7900054abba5 462
+  s_a20781a201d1ed::t_699240d1c04a49 421,430
+  s_a20781a201d1ed::t_f15e8b2e4145d2 53-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "38b0ff759710ea0dc9bfb2ca86b9c1ff09ff24dc",
+  "prompts": {},
+  "sessions": {
+    "s_a20781a201d1ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b78bc4c7-c9d6-4166-ab28-a71795530262",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
