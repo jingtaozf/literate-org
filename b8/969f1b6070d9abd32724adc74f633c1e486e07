@@ -1,0 +1,20 @@
+templates/Makefile.lp.mk
+  s_a20781a201d1ed::t_8891b63497cf48 67-75
+  s_a20781a201d1ed::t_939d6f1cc09ae7 92-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b8969f1b6070d9abd32724adc74f633c1e486e07",
+  "prompts": {},
+  "sessions": {
+    "s_a20781a201d1ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b78bc4c7-c9d6-4166-ab28-a71795530262",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
