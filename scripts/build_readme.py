@@ -50,7 +50,37 @@ except ImportError:
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-LP_ROOT = REPO_ROOT / "lp"
+
+
+def _resolve_lp_root() -> Path:
+    """Resolve the LP root, honouring consumer-repo overrides.
+
+    Resolution order (first hit wins):
+
+      1. ``LP_ROOT`` env var (absolute path to ``<consumer-repo>/lp/``).
+      2. ``LITERATE_AGENT_LP_ROOT`` env var, joined against ``$PWD`` so
+         consumers can configure it relative to their own checkout
+         (this is the form set by ``.claude/hooks/_env.sh`` in
+         edo-literate-style meta-repos).
+      3. ``$PWD/lp`` — the most common consumer-repo layout.
+      4. ``<this-script's parent's parent>/lp`` — the legacy fallback
+         when build_readme.py is run inside its own repo (literate-
+         agent's own tests etc.). Effectively the historical default.
+    """
+    import os
+
+    raw = os.environ.get("LP_ROOT")
+    if raw:
+        return Path(raw).expanduser().resolve()
+    rel = os.environ.get("LITERATE_AGENT_LP_ROOT")
+    if rel:
+        return (Path.cwd() / rel).resolve()
+    if (Path.cwd() / "lp").is_dir():
+        return (Path.cwd() / "lp").resolve()
+    return REPO_ROOT / "lp"
+
+
+LP_ROOT = _resolve_lp_root()
 
 # ────────────────────────────────────────────────────────────────────
 # Per-group narrative metadata — hand-curated.
@@ -388,7 +418,7 @@ def _write_or_check(path: Path, content: str, check_only: bool) -> bool:
         existing = path.read_text() if path.is_file() else ""
         if existing == content:
             return True
-        print(f"DRIFT: {path.relative_to(REPO_ROOT)}")
+        print(f"DRIFT: {path.relative_to(LP_ROOT.parent)}")
         diff = difflib.unified_diff(
             existing.splitlines(), content.splitlines(),
             fromfile=f"a/{path.name}", tofile=f"b/{path.name}", lineterm="",
@@ -397,7 +427,7 @@ def _write_or_check(path: Path, content: str, check_only: bool) -> bool:
             print(f"    {line}")
         return False
     path.write_text(content)
-    print(f"wrote: {path.relative_to(REPO_ROOT)}")
+    print(f"wrote: {path.relative_to(LP_ROOT.parent)}")
     return True
 
 
@@ -429,7 +459,7 @@ def main(argv: list[str]) -> int:
     shape = cfg.get("SHAPE", "plugin-consumer")
     if shape == "meta-repo":
         ok &= _write_or_check(
-            REPO_ROOT / "README.org",
+            LP_ROOT.parent / "README.org",
             expand_placeholders(render_root_readme(), cfg),
             args.check,
         )
