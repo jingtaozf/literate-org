@@ -26,8 +26,9 @@ Three artefacts get rebuilt:
 
 All three pass the same A-grade rubric as every other `.org` in
 this tree (`scripts/audit_lp.py`): file-local-vars + `#+TITLE` +
-`* Why ...` + `* Table of Contents :noexport:TOC:` + per-module
-prose.
+`* Why ...` + per-module prose. (A manual `:noexport:TOC:` block
+is no longer required as of 2026-05-28 — GitHub auto-renders an
+org TOC sidebar; see `rules/lp-module-section-hierarchy.md`.)
 
 ## Triggers
 

@@ -1,6 +1,6 @@
 # Module Section Hierarchy in Literate `.org` Files
 
-> *Last-validated*: 2026-05-15
+> *Last-validated*: 2026-05-28
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
 > *Origin*: <meta-repo> (`lp/<sub>/*.org` convention); examples use
 > Python-LP shape, the principle generalises to any literate language.
@@ -19,17 +19,18 @@ Every `lp/<sub>/<x>.org` opens with this fixed prologue:
 #+PROPERTY: literate-insert-header no
 #+PROPERTY: header-args :results silent :session :noweb yes :tangle no
 
-* Table of Contents                                            :noexport:TOC:
-
 * Why this module exists
 …
 ```
 
-The `* Table of Contents :noexport:TOC:` heading is the **toc-org**
-sentinel — when the maintainer saves the buffer in Emacs, toc-org's
-`before-save-hook` regenerates the TOC list under that heading
-automatically. AI agents do NOT need to populate the TOC themselves.
-Just leave the heading as-is.
+**Do NOT add `* Table of Contents :noexport:TOC:`** (changed
+2026-05-28). GitHub auto-renders an org TOC sidebar from heading
+structure, so a manual toc-org-maintained TOC is redundant — same
+information, two sources, drift cost. The `tangle-org-buffer.sh`
+PostToolUse hook no longer runs `(toc-org-insert-toc)`; rely on
+GitHub's renderer instead. If you're editing an existing file that
+still has a TOC block, delete the heading + bullet list down to the
+next sibling `*` heading.
 
 ---
 

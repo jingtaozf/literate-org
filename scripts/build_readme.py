@@ -251,8 +251,6 @@ def render_group_readme(grp: str, info: dict, lp_files: list[tuple[str, str]]) -
 #+OPTIONS: tex:verbatim toc:nil \\n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
 #+STARTUP: noindent
 
-* Table of Contents                                            :noexport:TOC:
-
 * Why this file exists
 
 Entry-point document for ``lp/{grp}/``. A senior engineer landing here
@@ -312,8 +310,6 @@ def render_root_readme() -> str:
 #+TITLE: literate-programming meta-repo
 #+OPTIONS: tex:verbatim toc:nil \\n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
 #+STARTUP: noindent
-
-* Table of Contents                                            :noexport:TOC:
 
 * Why this file exists
 
