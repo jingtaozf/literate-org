@@ -24,9 +24,9 @@ Two-column TSV (tab-separated), one row per tangled output file:
 Example rows (single-repo Python LP layout):
 
 #+begin_example
-python/claude_agent/options.py	<reference-project>-python.org
-python/claude_agent/backend.py	<reference-project>-python.org
-python/claude_agent/acp_backend.py	<reference-project>-python.org
+python/claude_agent/options.py	${PROJECT_NAMESPACE}-python.org
+python/claude_agent/backend.py	${PROJECT_NAMESPACE}-python.org
+python/claude_agent/acp_backend.py	${PROJECT_NAMESPACE}-python.org
 #+end_example
 
 Example rows (multi-submodule layout):

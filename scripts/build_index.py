@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate INDEX.org — section-level navigation across LP .org sources.
 
-Unified design (<reference-project> base + edo's grouping shell):
+Unified design (${PROJECT_NAMESPACE} base + edo's grouping shell):
 
   - Scan one OR many .org files.
   - For each file, walk every heading; record sections that have a
@@ -178,7 +178,7 @@ def _tangle_to_module(tangle: str) -> str:
 def group_key(entry: Entry, mode: str, lp_root: str) -> str:
     """Return group name for an entry. Modes:
       - 'lp': group by directory directly under LP_ROOT (edo-style)
-      - 'src': group by tangle path's first directory (<reference-project>'s
+      - 'src': group by tangle path's first directory (${PROJECT_NAMESPACE}'s
         python/<pkg>/foo.py → pkg)
       - 'none': all entries in '_root'
     """
@@ -201,7 +201,7 @@ def auto_detect_mode(files: list[Path], lp_root: str, project_root: Path) -> str
     """Pick a sensible default --group-by based on the file layout.
 
     Empty `lp_root` (set explicitly by single-repo projects whose .org
-    files live at the project root, e.g. <reference-project>'s
+    files live at the project root, e.g. ${PROJECT_NAMESPACE}'s
     LITERATE_AGENT_LP_ROOT="") means "no LP subdirectory" → mode none.
     Without this guard, `project_root / ""` would equal project_root
     itself and every file would qualify as "under lp_root", flipping
@@ -383,6 +383,14 @@ def main(argv: list[str]) -> int:
         group_pitches=group_pitches,
         title=title,
     )
+    # Sibling-import load_config; expand ${PROJECT_NAMESPACE} etc. from
+    # the consumer's .literate-agent/config.toml. No-op when not found.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from load_config import load_config, expand_placeholders  # type: ignore
+        output = expand_placeholders(output, load_config())
+    except ImportError:
+        pass
 
     out_arg = Path(args.output)
     out_path = out_arg if out_arg.is_absolute() else (PROJECT_ROOT / out_arg).resolve()

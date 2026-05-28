@@ -3,7 +3,7 @@
   "name": "literate-agent",
   "description": "Literate-programming rules, skills, and hooks for AI agents — dual-audience documents that work for both human readers and AI agents.",
   "owner": {
-    "name": "<author>",
+    "name": "Jingtao Xu",
     "email": "jt@jingtao.net"
   },
   "metadata": {
@@ -16,7 +16,7 @@
       "description": "Shared LP doctrine — rules, language hints, tangle hooks, build scripts — auto-imported via @CLAUDE.md and plugin-loaded skills/hooks/commands.",
       "version": "0.1.0",
       "author": {
-        "name": "<author>",
+        "name": "Jingtao Xu",
         "email": "jt@jingtao.net"
       },
       "category": "literate-programming",

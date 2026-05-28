@@ -86,7 +86,7 @@ indistinguishable from a hand-written package to the rest of Python.
 
 * Status
 
-The maintainer (<author>) uses this every day. The runtime is stable;
+The maintainer (${PROJECT_AUTHOR}) uses this every day. The runtime is stable;
 the LP discipline is calibrated for solo / small-LP scale per
 the AI-codebase-mastery research summarised in
 =/tmp/literate-org-uplift-proposal.org=.

@@ -1,0 +1,30 @@
+# Starter config for a meta-repo:
+# a parent repo that hosts many submodules under repos/, and
+# authors their production source prose-first as Org-mode under
+# lp/<sub>/*.org which tangles to repos/<sub>/<...>/.
+#
+# Copy into your meta-repo root:
+#   cp -r ~/projects/literate-agent/examples/meta-repo/.literate-agent ./
+
+[project]
+namespace     = "your-meta"
+display_name  = "Your Meta-Repo Display Name"
+author        = "Your Name"
+repo_url      = "https://github.com/your-org/your-meta-repo"
+
+[layout]
+shape         = "meta-repo"
+
+[paths]
+literate_agent_home = "~/projects/literate-agent"
+lp_root             = "lp"      # where lp/<sub>/*.org lives
+repos_root          = "repos"   # where submodules check out to
+tangle_make_target  = "tangle"
+
+# Per-submodule narrative (used by build_readme.py for lp/<sub>/README.org).
+# Add one block per submodule you want auto-rendered READMEs for.
+#
+# [groups.<submodule-name>]
+# elevator = "..."
+# groups = []
+# read_order = ["lp/<sub>/_project.org", "lp/<sub>/<concept>.org"]

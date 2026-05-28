@@ -273,7 +273,7 @@ once made.
 - Shared LP doctrine plugin loaded via Claude Code =--plugin-dir=.
 - 33 rules + 4 hints + 6 scripts + 4 hooks + 5 skills + 4 commands.
 - No Python runtime, no PyPI presence.
-- Consumed by =<reference-project>= + =<meta-repo>= + future projects.
+- Consumed by =${PROJECT_NAMESPACE}= + =<meta-repo>= + future projects.
 - Recent git history (10 commits this session) is the cowork +
   agent-native research output.
 
@@ -331,8 +331,8 @@ under-counts the costs of merge.
 5. If we later decide to fully merge, we already have history;
    if we decide to fully separate, we just =git rm -rf= the subdir.
 
-This is the same shape as =<reference-project>/reference/cmux= and
-=<reference-project>/reference/<reference-project>-sdk-python= — both are upstream
+This is the same shape as =${PROJECT_NAMESPACE}/reference/cmux= and
+=${PROJECT_NAMESPACE}/reference/${PROJECT_NAMESPACE}-sdk-python= — both are upstream
 projects embedded for local reference + co-development without
 losing their separate identity.
 

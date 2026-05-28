@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-20
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: <reference-project>; the principle generalises beyond that repo.
+> *Origin*: ${PROJECT_NAMESPACE}; the principle generalises beyond that repo.
 
 Minimum code that solves the problem. No features beyond what was asked.
 Every abstraction, parameter, and indirection must have ≥1 caller using it
@@ -16,11 +16,11 @@ to reintroduce the `defcustom`.
 
 ```elisp
 ;; YAGNI — nobody passes anything other than the default
-(defcustom <reference-project>-retry-count 3
+(defcustom ${PROJECT_NAMESPACE}-retry-count 3
   "Number of retries." :type 'integer)
 
 ;; Better — constant; reintroduce defcustom when a real user need appears
-(defvar <reference-project>--retry-count 3)
+(defvar ${PROJECT_NAMESPACE}--retry-count 3)
 ```
 
 ## No catch-all `pcase` wildcards when a specific pattern works
@@ -71,10 +71,10 @@ that's the signal to add the parameter.
 
 ```elisp
 ;; YAGNI — only one caller ever passes :timeout
-(<reference-project>-query prompt :callbacks cbs :timeout 30)
+(${PROJECT_NAMESPACE}-query prompt :callbacks cbs :timeout 30)
 
 ;; Better — bake it in until a second caller appears
-(<reference-project>-query prompt :callbacks cbs)
+(${PROJECT_NAMESPACE}-query prompt :callbacks cbs)
 ```
 
 ## No unused optional parameters

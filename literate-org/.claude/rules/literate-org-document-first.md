@@ -6,7 +6,7 @@ generated artefacts. The Python files exist for two readers:
 1. Team members who don't use Org-mode and need plain `.py` to consume.
 2. Distribution / `pip install` consumers downstream.
 
-For <author> (the maintainer), `.org` is the **single source of truth**.
+For ${PROJECT_AUTHOR} (the maintainer), `.org` is the **single source of truth**.
 For the team, `.py` remains a legitimate read-and-edit surface.
 
 This split has consequences for AI agents:
@@ -20,7 +20,7 @@ This split has consequences for AI agents:
   to). Re-tangle output overwrites teammate edits — confirm with the user
   before overwriting if unsure.
 
-Adapted from `~/projects/<reference-project>/.claude/rules/literate-programming-document-first.md`,
+Adapted from `~/projects/${PROJECT_NAMESPACE}/.claude/rules/literate-programming-document-first.md`,
 calibrated for the Python LP runtime in this repo.
 
 ## NEVER-touch list (the hook enforces some of these)

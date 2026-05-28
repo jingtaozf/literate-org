@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-21
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: cowork chapter — observed across <reference-project> + <meta-repo>
+> *Origin*: cowork chapter — observed across ${PROJECT_NAMESPACE} + <meta-repo>
 > long-run practice; same mechanism the user invokes verbally with
 > "proposal first before any code".
 

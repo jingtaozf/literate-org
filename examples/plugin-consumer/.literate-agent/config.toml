@@ -1,0 +1,28 @@
+# Starter config for a plugin-consumer repo:
+# a single project that @-imports literate-agent's doctrine + uses
+# its plugin-loaded skills/hooks/commands.
+#
+# Copy this entire directory tree into your project root:
+#   cp -r ~/projects/literate-agent/examples/plugin-consumer/.literate-agent ./
+# then edit the values below to match your project.
+
+[project]
+namespace     = "your-project"
+display_name  = "Your Project Display Name"
+author        = "Your Name"
+repo_url      = "https://github.com/your-org/your-project"
+
+[layout]
+shape         = "plugin-consumer"
+
+[paths]
+literate_agent_home = "~/projects/literate-agent"
+# Default make target your project uses for tangling. If your project
+# is purely .el via literate-elisp (no tangle step), leave default.
+tangle_make_target  = "tangle"
+
+# Optional consumer-defined placeholders (rendered only into THIS
+# consumer's local templates; never referenced by literate-agent rules).
+# Add what you need:
+# [placeholders.extra]
+# PROJECT_PYPI = "your-project-cli"

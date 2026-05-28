@@ -19,7 +19,7 @@ checklist.org=. The present loop asks the symmetric question for
 
 Five MVP rules shipped before this loop began (see
 =literate-agent/rules/lp-cowork-*=). Those rules were derived from
-6+ months of observed practice across =<reference-project>= + =<meta-repo>=
+6+ months of observed practice across =${PROJECT_NAMESPACE}= + =<meta-repo>=
 + =cmux=. This loop's purpose is to *validate and deepen* the MVP,
 not to bootstrap from scratch. Each direction will either ground a
 rule in pre-existing research, or surface a new pattern the MVP
@@ -116,7 +116,7 @@ sociology with N ranging from single-case ethnography to
 multi-site comparative studies.
 
 For LP cowork specifically, the empirical layer is the host
-project's own 6+ months of practice: =<reference-project>= +
+project's own 6+ months of practice: =${PROJECT_NAMESPACE}= +
 =<meta-repo>= + =cmux= commit histories, the =tasks/lessons.md=
 files, and =RATIONALE.md= entries that *visibly record* the
 articulation labour the agent and human shared across PR cycles.
@@ -131,7 +131,7 @@ articulation-work substrate made visible by writing it down.
 
 Does the human-agent pair perform articulation work, and does the
 agent participate symmetrically? Three observations from
-=<reference-project>= practice:
+=${PROJECT_NAMESPACE}= practice:
 
 1. *The agent will perform articulation work when asked* — when the
    human's prompt explicitly requests planning, sequencing, or
@@ -262,7 +262,7 @@ face-to-face, email, text chat) have been replicated extensively;
 the founding cost-of-grounding framework holds across studies.
 
 For LP cowork, the parallel evidence is observational: PR review
-cycles in =<reference-project>= show grounding failure when the agent
+cycles in =${PROJECT_NAMESPACE}= show grounding failure when the agent
 arrives at a file fresh and the file's =* Overview= prose does
 not establish enough common ground — the agent either over-reads
 code to recover context (cost: tokens) or makes an inconsistent
@@ -569,7 +569,7 @@ interviews at Microsoft. Czerwonka et al 2015 analysed 24,000+
 review threads. The two studies converge on the
 expectation-outcome gap.
 
-For LP cowork, the parallel evidence: =<reference-project>= PR history
+For LP cowork, the parallel evidence: =${PROJECT_NAMESPACE}= PR history
 shows agent review comments are dominated by (a) structural-rule
 violations (CLAUDE.md @-import drift, missing :CUSTOM_ID:, etc.) —
 which are *style* in Bacchelli's taxonomy — and (b) flagging
@@ -791,7 +791,7 @@ synthesised across 30 studies including industrial settings; the
 quality effect was robust, the productivity effect varied.
 
 For LP cowork, the parallel observation is the visible
-driver/navigator rotation in =<reference-project>= practice:
+driver/navigator rotation in =${PROJECT_NAMESPACE}= practice:
 
 - *Human as navigator, agent as driver*: human declares the
   high-level goal + rejected alternatives; agent makes the
@@ -1034,7 +1034,7 @@ linguistics (interview studies of N ≈ 6-12 participants per
 discipline).
 
 For LP cowork, the parallel is the *negotiated stability* of the
-LP genre across =<reference-project>= + =<meta-repo>= + =cmux= practice.
+LP genre across =${PROJECT_NAMESPACE}= + =<meta-repo>= + =cmux= practice.
 The four-part section shape (heading + CUSTOM_ID + prose preamble
 + src block) is not enforced by any tool — it's the convention
 both populations honour because deviating breaks the other's
@@ -1246,7 +1246,7 @@ finding: humans offload predictably when external cost <
 internal cost, and offloading reshapes the task rather than
 merely supplementing it.
 
-For LP cowork, the parallel is observational: =<reference-project>= +
+For LP cowork, the parallel is observational: =${PROJECT_NAMESPACE}= +
 =<meta-repo>= practice shows both populations offloading to the
 LP file. Humans offload "rejected alternatives" into prose
 (otherwise lost on session reset); agents offload "what I'm
@@ -1346,7 +1346,7 @@ boundary-object research and tightened the definition (clarifying
 which artefacts qualify).
 
 For LP cowork, the parallel: =literate-agent= itself is a
-boundary object across multiple consuming projects (=<reference-project>=,
+boundary object across multiple consuming projects (=${PROJECT_NAMESPACE}=,
 =<meta-repo>=, future) each with project-specific interpretation
 of the doctrine. The =@~/projects/literate-agent/CLAUDE.md=
 import allows each consumer to give the doctrine its local

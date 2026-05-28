@@ -1,6 +1,6 @@
 #+TITLE: Research: Human-Interface Commonalities That Transfer to LP-with-AI
 #+SUBTITLE: A field scan of HCI / cognitive findings, asking which ones move from human-reader research into AI-agent-reader practice
-#+AUTHOR: <author> (with Claude Code as research instrument)
+#+AUTHOR: ${PROJECT_AUTHOR} (with Claude Code as research instrument)
 #+STARTUP: showall
 #+OPTIONS: toc:2 num:nil
 

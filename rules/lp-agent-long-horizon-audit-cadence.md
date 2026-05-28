@@ -13,7 +13,7 @@ regression, citation hallucination), others reset (per-session
 context loss). Without periodic intervention, the loop's quality
 falls from baseline. Two breakdown events have already been
 observed (=<meta-repo>= April 2026 rule-violation accumulation;
-=<reference-project>= late-April Tri-Protocol drift).
+=${PROJECT_NAMESPACE}= late-April Tri-Protocol drift).
 
 The mitigation is *scheduled audit + reset cadence* — not waiting
 for failure visible enough to demand attention.
@@ -81,7 +81,7 @@ your project's baseline), reset:
 Without scheduled audits:
 
 - Drift accumulates silently.
-- Two known breakdown events (edo April / <reference-project> late-April)
+- Two known breakdown events (edo April / ${PROJECT_NAMESPACE} late-April)
   required substantial recovery (research-grounded reset,
   re-anchoring effort).
 - Recovery cost > preventive audit cost.
@@ -113,8 +113,8 @@ not the audit execution itself.
 
 The first execution of this cadence happened 2026-05-21, immediately
 after the rule shipped. Findings + process evaluation documented in
-`<reference-project>/tasks/audit-2026-Q2.md` (commit
-[f120f3e](https://github.com/jingtaozf/<reference-project>/commit/f120f3e)).
+`${PROJECT_NAMESPACE}/tasks/audit-2026-Q2.md` (commit
+[f120f3e](https://github.com/jingtaozf/${PROJECT_NAMESPACE}/commit/f120f3e)).
 
 Three calibration findings from that execution worth incorporating
 on next-cycle:
@@ -145,5 +145,5 @@ on next-cycle:
 - `docs/agent-native-phenomena.org` direction J — research
   grounding for why long-horizon breakdown is a real
   architectural risk, not just a hypothetical.
-- `<reference-project>/tasks/audit-2026-Q2.md` — worked example, first
+- `${PROJECT_NAMESPACE}/tasks/audit-2026-Q2.md` — worked example, first
   execution; top-10 priority list + 4 candidate rule updates.

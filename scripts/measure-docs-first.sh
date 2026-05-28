@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # measure-docs-first.sh — score docs-first reflex adoption over recent commits
 #
-# Adapted from <reference-project> (iter#9 of the 10-iter docs-first refinement
+# Adapted from ${PROJECT_NAMESPACE} (iter#9 of the 10-iter docs-first refinement
 # loop, 2026-05-19).  For each commit in the last N (default 20) that
 # touched any lp/**/*.org file, classify into:
 #
@@ -24,7 +24,7 @@
 #     Regex matching .org files this script watches. Default covers
 #     both common layouts: multi-submodule (lp/<sub>/*.org) and
 #     single-repo (top-level *.org). Override for a tighter scope:
-#       export LITERATE_AGENT_DOCS_FIRST_FILE_PATTERN='<reference-project>.*\.org$'
+#       export LITERATE_AGENT_DOCS_FIRST_FILE_PATTERN='${PROJECT_NAMESPACE}.*\.org$'
 #
 #   LITERATE_AGENT_DOCS_FIRST_GIT_GLOB
 #     Git pathspec passed to `git log -- <glob>`. Defaults to matching
@@ -67,7 +67,7 @@ for sha in $COMMITS; do
   # Classify each +/- diff line by content heuristic (not src-block
   # state machine — that fails on hunks fully INSIDE a #+begin_src
   # block; the boundary marker is absent from the diff so default
-  # in_src=0 was wrong).  See <reference-project> iter#9 commit for the bug
+  # in_src=0 was wrong).  See ${PROJECT_NAMESPACE} iter#9 commit for the bug
   # discovery.
   read -r prose_lines src_lines <<<"$(
     git show "$sha" -- 'lp/**/*.org' 2>/dev/null | awk '

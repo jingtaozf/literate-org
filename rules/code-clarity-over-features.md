@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-20
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: <reference-project>; the principle generalises beyond that repo.
+> *Origin*: ${PROJECT_NAMESPACE}; the principle generalises beyond that repo.
 
 Readable, well-structured code matters more than shipping features or
 adding tests. After every change, pause and ask:

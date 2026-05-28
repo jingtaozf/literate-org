@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-20
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: <reference-project>; the principle generalises beyond that repo.
+> *Origin*: ${PROJECT_NAMESPACE}; the principle generalises beyond that repo.
 
 Consistent naming makes the codebase greppable and self-documenting.
 These rules apply to all Elisp code in `.org` source files and any
@@ -12,8 +12,8 @@ These rules apply to all Elisp code in `.org` source files and any
 
 | Prefix | Module | Visibility |
 |--------|--------|------------|
-| `<reference-project>-` | Core SDK (`<reference-project>.org`, `<reference-project>-backend.org`) | Public |
-| `<reference-project>--` | Core SDK internals | Private |
+| `${PROJECT_NAMESPACE}-` | Core SDK (`${PROJECT_NAMESPACE}.org`, `${PROJECT_NAMESPACE}-backend.org`) | Public |
+| `${PROJECT_NAMESPACE}--` | Core SDK internals | Private |
 | `code-agent-org-` | Org integration (`code-agent-org.org`, sub-modules) | Public |
 | `code-agent-org--` | Org integration internals | Private |
 | `emacs-mcp-server-` | MCP server (`emacs-mcp-server.org`) | Public |
@@ -28,13 +28,13 @@ Names should encode the *role*, not the *type* or a generic label.
 
 ```elisp
 ;; GOOD — encodes the role
-(defvar <reference-project>--cli-session-id nil)
-(defvar <reference-project>--ready-pattern-re nil)
+(defvar ${PROJECT_NAMESPACE}--cli-session-id nil)
+(defvar ${PROJECT_NAMESPACE}--ready-pattern-re nil)
 (defvar code-agent-org--workspace-heading-pos nil)
 
 ;; BAD — generic, ambiguous when multiple values coexist
-(defvar <reference-project>--id nil)
-(defvar <reference-project>--pattern nil)
+(defvar ${PROJECT_NAMESPACE}--id nil)
+(defvar ${PROJECT_NAMESPACE}--pattern nil)
 (defvar code-agent-org--pos nil)
 ```
 
@@ -54,11 +54,11 @@ add the domain qualifier.
 
 | Form | Meaning | Example |
 |------|---------|---------|
-| `-p` / `--p` | Predicate (returns boolean) | `<reference-project>-ready-p` |
+| `-p` / `--p` | Predicate (returns boolean) | `${PROJECT_NAMESPACE}-ready-p` |
 | `--` | Module-private | `code-agent-org--get-section-level` |
-| `with-` | Resource-acquiring macro (temporary scope) | `<reference-project>-with-session` |
-| `make-` | Factory / constructor wrapper | `<reference-project>-make-options` |
-| `-hook` | Hook variable | `<reference-project>-query-complete-hook` |
+| `with-` | Resource-acquiring macro (temporary scope) | `${PROJECT_NAMESPACE}-with-session` |
+| `make-` | Factory / constructor wrapper | `${PROJECT_NAMESPACE}-make-options` |
+| `-hook` | Hook variable | `${PROJECT_NAMESPACE}-query-complete-hook` |
 | `-mode` | Minor/major mode | `code-agent-org-mode` |
 
 Note: Elisp does not use earmuffs (`*name*`) for special variables
@@ -80,11 +80,11 @@ binding convention is documented in the variable's docstring.
 The prefix is already a namespace. Don't bake it in twice:
 
 ```elisp
-;; BAD — "<reference-project>" is already in the prefix
-(defun <reference-project>-get-agent-session-id ...)
+;; BAD — "${PROJECT_NAMESPACE}" is already in the prefix
+(defun ${PROJECT_NAMESPACE}-get-agent-session-id ...)
 
 ;; GOOD — the module prefix provides the namespace
-(defun <reference-project>-get-session-id ...)
+(defun ${PROJECT_NAMESPACE}-get-session-id ...)
 ```
 
 ## Generic functions vs plain `defun`

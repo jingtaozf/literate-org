@@ -18,7 +18,7 @@
 > `.claude/hooks/_env.sh` marker.
 
 `literate-agent` is a *boundary object* (Star & Griesemer 1989)
-serving multiple consumer projects — <reference-project>, <meta-repo>,
+serving multiple consumer projects — ${PROJECT_NAMESPACE}, <meta-repo>,
 and future consumers each interpret the plugin's doctrine locally
 through `_env.sh` overrides, project-specific `@`-import subsets,
 optional skill/hook adoption, and Makefile customisation. The
@@ -102,7 +102,7 @@ artefact's actual owning project.
 
 ## Worked example: `LITERATE_AGENT_TANGLE_MAKE_TARGET`
 
-The env var was added because <reference-project> uses `make tangle-python`
+The env var was added because ${PROJECT_NAMESPACE} uses `make tangle-python`
 (single Python tangle entry point) while edo uses `make tangle
 FILE=...` (per-file invocation). Boundary-object design check:
 
@@ -124,7 +124,7 @@ follow.
 ## Anti-patterns
 
 1. *Hard-coded consumer paths in literate-agent code or docs.* A
-   rule that references `<reference-project>-python.org` by name (rather
+   rule that references `${PROJECT_NAMESPACE}-python.org` by name (rather
    than as an example) bakes one consumer's vocabulary into the
    plugin. Use `<project>-python.org` or similar placeholder.
 2. *Zero override capacity.* A new rule with no escape hatch

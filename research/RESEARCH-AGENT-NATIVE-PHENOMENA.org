@@ -22,7 +22,7 @@ The research mode shifts from "validate against canon" to "first-
 principles characterisation of new territory."
 
 Ten directions selected by surveying observed phenomena across
-=<reference-project>= + =<meta-repo>= + =cmux= practice + the
+=${PROJECT_NAMESPACE}= + =<meta-repo>= + =cmux= practice + the
 transfer-gradient + cowork loops, picking the cases where the
 existing transfer answer was "no human-human precedent" or
 "LLM-specific mechanism." Each direction explores one phenomenon
@@ -78,7 +78,7 @@ answer when the user pushes back. The single-turn rate is robustly
 single-turn — it's multi-turn within a session and multi-session
 across weeks. The question this direction asks: /does sycophancy
 accumulate across turns, or does each turn reset?/ Observational
-evidence from =<reference-project>= PR cycles suggests *accumulation* —
+evidence from =${PROJECT_NAMESPACE}= PR cycles suggests *accumulation* —
 after the agent capitulates once in a session, it capitulates more
 readily on subsequent turns within the same session. The
 phenomenon has no human-human analogue with the same mechanism
@@ -113,7 +113,7 @@ prior-turn capitulations in the same session/. Sharma 2023 measured
 single-turn baselines (~30-50% across 5 production model families)
 but each measurement was an independent trial.
 
-Observational evidence from =<reference-project>= PR cycles: long
+Observational evidence from =${PROJECT_NAMESPACE}= PR cycles: long
 sessions (>20 turns) show a visibly different agent behaviour from
 short sessions. The agent that pushed back at turn 3 ("I think
 this assumption needs verification") stops pushing back by turn
@@ -225,7 +225,7 @@ deep sub-section may not be.
 :CUSTOM_ID: dir-B-2
 :END:
 
-Observational, drawn from =<reference-project>= + =<meta-repo>= practice.
+Observational, drawn from =${PROJECT_NAMESPACE}= + =<meta-repo>= practice.
 When a session starts fresh and the user asks "what's the state
 of X?", the agent's response reveals which files it loaded. Across
 ~50 observed cold starts:
@@ -354,7 +354,7 @@ lengths. The effect held even when context was nominally well
 within the model's max context window.
 
 Observational evidence from LP cowork: the 6700-line
-=<reference-project>-python.org= shows clear lost-in-the-middle
+=${PROJECT_NAMESPACE}-python.org= shows clear lost-in-the-middle
 artefacts — agent retrieves details correctly from line 100 or
 line 6500, but mid-file (line 3000-4000) details get
 hallucinated or omitted in summary tasks.
@@ -430,7 +430,7 @@ anchor. Mid-file detail still belongs there, but should not be
 the *only* anchor for cold-start critical claims. Second, *use
 =:CUSTOM_ID:= to give mid-file content a recognition surface*
 the agent can grep to rather than scan to. Third, *split very
-large .org files*. =<reference-project>-python.org= at 6700 lines is at
+large .org files*. =${PROJECT_NAMESPACE}-python.org= at 6700 lines is at
 the edge of where lost-in-the-middle matters; splitting into
 multiple smaller .org files keeps each within the attention's
 favoured region.
@@ -602,7 +602,7 @@ easily overridden by user instruction. Ouyang et al 2022
 (=Training language models to follow instructions=) similarly
 shows the deep-prior effect.
 
-Observational evidence from =<reference-project>= + =<meta-repo>=: the
+Observational evidence from =${PROJECT_NAMESPACE}= + =<meta-repo>=: the
 project conventions that survive session-to-session are those
 codified in =literate-agent/rules/= or =CLAUDE.md=. Conventions
 that exist only as accumulated style (e.g. a specific way to
@@ -703,7 +703,7 @@ predicts different mitigations.
 :CUSTOM_ID: dir-E-2
 :END:
 
-Observed in <reference-project> + <meta-repo> PR history. Specific
+Observed in ${PROJECT_NAMESPACE} + <meta-repo> PR history. Specific
 examples:
 
 - Project convention "comma-escape leading-star" → agent edit
@@ -816,7 +816,7 @@ partial-but-real evidence that model families differ on specific
 task classes.
 
 Direct LP-cowork comparison is limited. Observational evidence
-from cmux multi-agent practice: <reference-project> and <meta-repo>
+from cmux multi-agent practice: ${PROJECT_NAMESPACE} and <meta-repo>
 have been touched by Claude (dominant), GPT (occasional),
 opencode/Codex (rare). The visible difference: Claude reviews
 catch structural rule violations more reliably; GPT refactors
@@ -922,7 +922,7 @@ case of LP cowork: independent agents with full git-write
 authority, no inter-agent awareness, asynchronous edits via the
 shared artefact.
 
-Observational evidence from cmux + <reference-project> practice: ~5-10
+Observational evidence from cmux + ${PROJECT_NAMESPACE} practice: ~5-10
 multi-agent incidents over 6 months. Categorical breakdown:
 
 - =git index.lock= contention (3 incidents) — both agents tried
@@ -1072,7 +1072,7 @@ which mechanism dominates.
 :END:
 
 The prior loops treat "the agent" as a monolithic actor. In
-practice, =<reference-project>= + =cmux= run multiple model families
+practice, =${PROJECT_NAMESPACE}= + =cmux= run multiple model families
 side-by-side — Claude (Sonnet, Opus), GPT (4, 4.1), Codex, Gemini,
 opencode, local models. Each has a different capability profile —
 some better at structural editing, some at prose, some at
@@ -1221,7 +1221,7 @@ Hallucination in Natural Language Generation=) catalogues
 intrinsic, extrinsic, factual subtypes. None of these directly
 covers the LP-internal subtype.
 
-Observational evidence from <reference-project> + <meta-repo>: across
+Observational evidence from ${PROJECT_NAMESPACE} + <meta-repo>: across
 ~20 observed hallucination incidents in cowork loops:
 
 - ~40% were LP-internal: cited =RATIONALE.md line 42= when no
@@ -1340,7 +1340,7 @@ Min et al 2022 on ICL mechanism) shows that example-based
 adaptation is bounded by context window; persistence across
 fresh contexts requires fine-tuning, not exposure.
 
-Observational evidence from <reference-project> 6-month engagement:
+Observational evidence from ${PROJECT_NAMESPACE} 6-month engagement:
 
 - *Genre conformance* (four-part section shape): visibly
   improves over time. Early commits had grab-bag headings; later
@@ -1451,13 +1451,13 @@ context-window research) provides single-session degradation
 patterns. Cross-session degradation is under-studied because
 most LLM research is single-session-bounded.
 
-Observational evidence from 6-month <reference-project> + <meta-repo>
+Observational evidence from 6-month ${PROJECT_NAMESPACE} + <meta-repo>
 engagement: two visible breakdown events.
 
 - =<meta-repo>= April 2026 — accumulated rule violations
   required a manual "research-grounded reset" pass (the cowork
   research loop itself was one form of this).
-- =<reference-project>= late April 2026 — a refactor pattern (Tri-
+- =${PROJECT_NAMESPACE}= late April 2026 — a refactor pattern (Tri-
   Protocol) was correctly applied at first then partially
   un-applied by subsequent sessions, requiring re-anchoring.
 
@@ -1791,7 +1791,7 @@ Eight observations:
 6. *Lost in the middle has LP-specific implications*. Direction
    C's positional-bias finding implies long .org files (>3000
    lines) have systematic mid-content under-reading. The 6700-
-   line =<reference-project>-python.org= sits at the edge of where
+   line =${PROJECT_NAMESPACE}-python.org= sits at the edge of where
    this matters; splitting into smaller files is the
    architectural fix.
 

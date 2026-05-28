@@ -4,7 +4,7 @@
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
 > *Origin*: research finding (transfer-gradient observation #1 —
 > *cross-session state persistence is the universal transfer-break
-> boundary*; direction I); the principle generalises beyond <reference-project>.
+> boundary*; direction I); the principle generalises beyond ${PROJECT_NAMESPACE}.
 
 The single largest source of HI-to-AI-agent transfer breaks identified
 by the research is *cross-session state persistence*. Human readers
@@ -23,7 +23,7 @@ section's prose:
 
 1. **Stable identifiers in file naming**. The file name itself is the
    anchor an agent re-finds on a cold start. Concept-named files
-   (`<reference-project>-backend.org`, `lp-noweb-for-big-blocks.md`) survive
+   (`${PROJECT_NAMESPACE}-backend.org`, `lp-noweb-for-big-blocks.md`) survive
    reorganisation; date-named or session-named files don't. Renames
    break every cross-reference; do them sparingly and through `git mv`.
 2. **Stable cross-reference anchors**. `:CUSTOM_ID:` on every

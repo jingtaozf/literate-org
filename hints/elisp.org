@@ -74,9 +74,9 @@ that use it, not just the module that defines it.
 
 #+begin_example
 ;; After editing the macro in trace.org:
-(literate-elisp-load "<reference-project>-trace.org")
+(literate-elisp-load "${PROJECT_NAMESPACE}-trace.org")
 ;; Then ALSO reload every caller:
-(literate-elisp-load "<reference-project>-backend.org")
+(literate-elisp-load "${PROJECT_NAMESPACE}-backend.org")
 (literate-elisp-load "code-agent-org.org")
 ;; ... etc.
 #+end_example

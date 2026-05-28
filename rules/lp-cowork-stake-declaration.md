@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-21
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: cowork chapter — observed across <reference-project> + <meta-repo>
+> *Origin*: cowork chapter — observed across ${PROJECT_NAMESPACE} + <meta-repo>
 > + cmux long-run practice; codifies the user's standing
 > *risk-tier-self-disclose* discipline as an LP-specific rule.
 

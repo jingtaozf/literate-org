@@ -18,7 +18,7 @@ Symmetry with the reader-side research:
 
 | Reader-side (done) | Author-side (this loop) |
 |--------------------+--------------------------|
-| Seed: NN/g 1997-2017 reader research transfers to AI agents | Seed: 6+ months of <reference-project> + edo + cmux cowork practice produces stable patterns |
+| Seed: NN/g 1997-2017 reader research transfers to AI agents | Seed: 6+ months of ${PROJECT_NAMESPACE} + edo + cmux cowork practice produces stable patterns |
 | 10 HI directions (foraging, CLT, ...) | 10 CSCW / co-authoring / collaboration directions |
 | 5 rounds × 6 questions per direction | Same structure |
 | Output: figure + families + 8 observations + 6 doctrine rules | Output: figure + families + observations + N new doctrine rules |
@@ -117,7 +117,7 @@ shipped from practice before the research. Two stances:
 - *MVP revisable*: research can rewrite or merge MVP rules if it
   finds the practice was off.
 
-Reader-side precedent: the 4 existing rules from <reference-project> got
+Reader-side precedent: the 4 existing rules from ${PROJECT_NAMESPACE} got
 "Why this works" grounding sections added but were not rewritten.
 Defaulting to MVP-fixed unless user prefers otherwise.
 

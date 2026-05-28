@@ -1,0 +1,210 @@
+#+TITLE: =.literate-agent/config.toml= — Schema + Loader
+
+A consumer repo declares its project-specific values in
+=.literate-agent/config.toml= at its root. literate-agent's
+build scripts discover the file by walking upward from CWD and
+expand placeholders in rules / README templates at render time.
+
+* Why this file exists
+:PROPERTIES:
+:CUSTOM_ID: why
+:END:
+
+Before this file:
+
+- Rules in =rules/*.md= hardcoded "claude-agent" / "edo-literate"
+  / "skill-scout-server" — every consumer had to fork the rules
+  to make examples make sense.
+- =scripts/build_readme.py= had project-specific narrative dicts
+  baked in.
+- A new consumer onboarding hit "find/replace 24 files" as the
+  first step.
+
+With this file:
+
+- Rules carry =${PROJECT_NAMESPACE}= placeholders; renderer
+  expands per consumer.
+- =build_readme.py= + =build_index.py= load TOML, pick template,
+  emit consumer-tailored output.
+- Onboarding = drop one TOML file + =@-import literate-agent= +
+  done.
+
+* Discovery order
+:PROPERTIES:
+:CUSTOM_ID: discovery
+:END:
+
+1. =$LITERATE_AGENT_CONFIG_PATH= (explicit override env var) — if
+   set, used directly.
+2. Walk upward from CWD looking for =.literate-agent/config.toml=
+   (first hit wins). Same algorithm as =find_owning_project= in
+   =hooks/lib/tangle_lookup.py=.
+3. If no file is found, scripts fall back to *default* values
+   (table below) — useful for testing literate-agent itself,
+   which has no consumer config.
+
+The discovery is *consumer-local*: each consumer's config governs
+that consumer's rendered output. literate-agent itself can be
+rendered with its own minimal config when needed.
+
+* Schema
+:PROPERTIES:
+:CUSTOM_ID: schema
+:END:
+
+** =[project]= — identity
+:PROPERTIES:
+:CUSTOM_ID: project-section
+:END:
+
+| Key | Type | Required | Default | Purpose |
+|-----+------+----------+---------+---------|
+| =namespace= | string | yes | =project= | Symbol prefix; expands =${PROJECT_NAMESPACE}=. Lowercase + hyphens (e.g. =code-agent=). |
+| =display_name= | string | no | =namespace= | Human-readable name; expands =${PROJECT_DISPLAY_NAME}=. |
+| =author= | string | no | (empty) | Author / maintainer; expands =${PROJECT_AUTHOR}=. |
+| =repo_url= | string | no | (empty) | Canonical Git URL; expands =${PROJECT_REPO}=. |
+
+** =[layout]= — which shape the consumer takes
+:PROPERTIES:
+:CUSTOM_ID: layout-section
+:END:
+
+| Key | Type | Required | Default | Purpose |
+|-----+------+----------+---------+---------|
+| =shape= | enum | yes | =plugin-consumer= | One of: =plugin-consumer= (single repo + @-imported doctrine), =meta-repo= (many submodules under =repos/=), =single-repo-lp= (LP-only, no doctrine import). Picks which README template renders. |
+
+** =[paths]= — filesystem layout
+:PROPERTIES:
+:CUSTOM_ID: paths-section
+:END:
+
+| Key | Type | Required when | Default | Purpose |
+|-----+------+---------------+---------+---------|
+| =literate_agent_home= | string | always optional | =~/projects/literate-agent= | Where the literate-agent clone lives; expands =${LITERATE_AGENT_HOME}=. |
+| =lp_root= | string | =shape = "meta-repo"= or =single-repo-lp= | =lp= | LP source root; expands =${LP_ROOT}=. |
+| =repos_root= | string | =shape = "meta-repo"= | =repos= | Submodule destination root; expands =${REPOS_ROOT}=. |
+| =tangle_make_target= | string | optional | =tangle= | Make target name for tangling (consumers like emacs-agent may use =tangle-python= etc.). |
+
+** =[placeholders.extra]= — consumer-defined extras
+:PROPERTIES:
+:CUSTOM_ID: extras-section
+:END:
+
+If a consumer needs a placeholder beyond the canonical set:
+
+#+begin_src toml
+[placeholders.extra]
+PROJECT_SDK_NAME = "code-agent-sdk"
+PROJECT_PYPI    = "code-agent-cli"
+#+end_src
+
+These expand the same way (=${PROJECT_SDK_NAME}=), but they exist
+only for one consumer's rendering — rules in literate-agent
+itself should never reference an =extra= placeholder.
+
+* Minimal examples
+:PROPERTIES:
+:CUSTOM_ID: examples
+:END:
+
+** Plugin-consumer (single repo)
+:PROPERTIES:
+:CUSTOM_ID: example-plugin-consumer
+:END:
+
+#+begin_src toml
+[project]
+namespace      = "code-agent"
+display_name   = "Claude Agent SDK for Emacs"
+author         = "Jingtao Xu"
+repo_url       = "https://github.com/jingtaozf/emacs-agent"
+
+[layout]
+shape          = "plugin-consumer"
+
+[paths]
+literate_agent_home = "~/projects/literate-agent"
+#+end_src
+
+** Meta-repo (many submodules)
+:PROPERTIES:
+:CUSTOM_ID: example-meta-repo
+:END:
+
+#+begin_src toml
+[project]
+namespace      = "edo"
+display_name   = "EDO Literate Meta-Repo"
+
+[layout]
+shape          = "meta-repo"
+
+[paths]
+lp_root        = "lp"
+repos_root     = "repos"
+#+end_src
+
+** Single-repo LP (no doctrine import)
+:PROPERTIES:
+:CUSTOM_ID: example-single-repo
+:END:
+
+#+begin_src toml
+[project]
+namespace      = "my-tool"
+
+[layout]
+shape          = "single-repo-lp"
+
+[paths]
+lp_root        = "src"   # LP sources live under src/, not lp/
+#+end_src
+
+* Loader API — =scripts/load_config.py=
+:PROPERTIES:
+:CUSTOM_ID: loader
+:END:
+
+Other scripts import the loader:
+
+#+begin_src python
+from literate_agent_scripts.load_config import load_config, expand_placeholders
+
+cfg = load_config()                            # discover + parse + apply defaults
+text = expand_placeholders(template_str, cfg)  # ${VAR} → cfg-resolved value
+#+end_src
+
+=load_config()= returns a flat =dict[str, str]= keyed by
+placeholder name (=PROJECT_NAMESPACE=, =LP_ROOT=, etc.) — easier
+to pipe into =string.Template= than a nested dict.
+
+* Default fallback
+:PROPERTIES:
+:CUSTOM_ID: defaults
+:END:
+
+When no =config.toml= is found (e.g. running scripts inside
+literate-agent itself for testing):
+
+| Placeholder | Default |
+|-------------+---------|
+| =PROJECT_NAMESPACE= | =project= |
+| =PROJECT_DISPLAY_NAME= | =project= |
+| =PROJECT_AUTHOR= | (empty) |
+| =PROJECT_REPO= | (empty) |
+| =LITERATE_AGENT_HOME= | =~/projects/literate-agent= |
+| =LP_ROOT= | =lp= |
+| =REPOS_ROOT= | =repos= |
+
+Templates that hit defaults render with the literal word =project=
+where consumer namespaces would go — a clear "you forgot
+config.toml" signal rather than a silent empty string.
+
+* See also
+:PROPERTIES:
+:CUSTOM_ID: see-also
+:END:
+
+- [[file:../rules/placeholder-convention.md][rules/placeholder-convention.md]] — what rule authors must do.
+- [[file:../scripts/load_config.py][scripts/load_config.py]] — reference implementation of the loader.
+- [[file:../README.org::#config][README.org § Per-consumer configuration]] — short intro for new users.

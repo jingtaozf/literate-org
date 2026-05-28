@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-20
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: <reference-project>; the principle generalises beyond that repo.
+> *Origin*: ${PROJECT_NAMESPACE}; the principle generalises beyond that repo.
 
 > Companion reference to the `.claude/skills/docs-first/SKILL.md`
 > auto-trigger skill.  Most public Claude Code guidance assumes
@@ -142,7 +142,7 @@ header-args:
 ```
 ,*** Module: token bridge
 :PROPERTIES:
-:header-args:elisp: :tangle ./python-<reference-project>/bridge.el
+:header-args:elisp: :tangle ./python-${PROJECT_NAMESPACE}/bridge.el
 :END:
 ```
 
@@ -168,7 +168,7 @@ months later to remember why something exists.
   comprehension benefit → not literate, just code.
 
 This rule applies to all `.org` source-of-truth files in the host
-project. Examples in this document reference the `<reference-project>`
+project. Examples in this document reference the `${PROJECT_NAMESPACE}`
 codebase (the rule's birthplace); the four-part section shape
 generalises to any literate-programming `.org` file.
 

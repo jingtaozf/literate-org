@@ -3,7 +3,7 @@
 > *Last-validated*: 2026-05-21
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
 > *Origin*: cowork chapter — generalises the four-file pattern that
-> emerged across <reference-project> + <meta-repo> + cmux long-run practice.
+> emerged across ${PROJECT_NAMESPACE} + <meta-repo> + cmux long-run practice.
 
 In an LP cowork loop, four persistence surfaces emerged as the
 *minimum complete set* of durable state needed to keep human and
@@ -88,7 +88,7 @@ state machine.
 
 | Project | `todo.md` | `lessons.md` | `ARCHITECTURE` | `decisions` |
 |---------+-----------+--------------+----------------+-------------|
-| <reference-project> | `tasks/todo.md` | `tasks/lessons.md` | `ARCHITECTURE.org` | `RATIONALE.md` |
+| ${PROJECT_NAMESPACE} | `tasks/todo.md` | `tasks/lessons.md` | `ARCHITECTURE.org` | `RATIONALE.md` |
 | <meta-repo> | `lp/draft.org` (proposals queue) | (rolls into draft.org or decisions-log) | per-`lp/<sub>/_project.org` | `lp/decisions-log.org` |
 
 The exact filenames differ; the four *roles* are the same.

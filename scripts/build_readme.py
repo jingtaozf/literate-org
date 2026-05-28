@@ -34,6 +34,21 @@ import sys
 from pathlib import Path
 from textwrap import dedent
 
+# Sibling-import load_config so rendered output can expand
+# ${PROJECT_NAMESPACE} etc. from the consumer's .literate-agent/config.toml.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from load_config import load_config, expand_placeholders  # type: ignore
+except ImportError:
+    # Fallback no-op if load_config not importable (e.g. running
+    # detached from literate-agent/scripts/). Placeholders stay literal.
+    def load_config():  # type: ignore[misc]
+        return {}
+
+    def expand_placeholders(text: str, cfg=None) -> str:  # type: ignore[misc]
+        return text
+
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LP_ROOT = REPO_ROOT / "lp"
 
@@ -400,6 +415,8 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv[1:])
 
     ok = True
+    # Discover consumer config; placeholders in rendered output expand against it.
+    cfg = load_config()
 
     # Per-group READMEs
     for grp, info in sorted(GROUP_NARRATIVE.items()):
@@ -408,11 +425,20 @@ def main(argv: list[str]) -> int:
             print(f"SKIP (missing): {grp}")
             continue
         lp_files = collect_lp_files(grp_dir)
-        content = render_group_readme(grp, info, lp_files)
+        content = expand_placeholders(render_group_readme(grp, info, lp_files), cfg)
         ok &= _write_or_check(grp_dir / "README.org", content, args.check)
 
-    # Root README
-    ok &= _write_or_check(REPO_ROOT / "README.org", render_root_readme(), args.check)
+    # Root README — only auto-generate for meta-repo shape. Plugin-consumer
+    # and single-repo-lp consumers maintain their READMEs by hand.
+    shape = cfg.get("SHAPE", "plugin-consumer")
+    if shape == "meta-repo":
+        ok &= _write_or_check(
+            REPO_ROOT / "README.org",
+            expand_placeholders(render_root_readme(), cfg),
+            args.check,
+        )
+    else:
+        print(f"SKIP root README (shape={shape!r}; only meta-repo gets auto-rendered)")
 
     return 0 if ok else 1
 

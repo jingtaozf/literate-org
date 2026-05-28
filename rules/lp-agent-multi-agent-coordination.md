@@ -20,7 +20,7 @@ division).
 
 ## The failure-mode catalogue
 
-Observed across cmux + <reference-project> + edo over 6+ months:
+Observed across cmux + ${PROJECT_NAMESPACE} + edo over 6+ months:
 
 | Failure mode | What happens | Cost |
 |--------------+--------------+------|

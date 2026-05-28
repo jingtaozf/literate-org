@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-20
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: <reference-project>; the principle generalises beyond that repo.
+> *Origin*: ${PROJECT_NAMESPACE}; the principle generalises beyond that repo.
 
 Each module models its domain as a small set of **classes** (state +
 identity) and **protocols** (published behaviour, dispatched on the
@@ -28,8 +28,8 @@ Callers interact by "sending a message to an object":
 
 ```elisp
 ;; Elisp
-(<reference-project>-backend-query backend prompt callbacks)   ; dispatches on backend class
-(<reference-project>-backend-cancel backend handle)
+(${PROJECT_NAMESPACE}-backend-query backend prompt callbacks)   ; dispatches on backend class
+(${PROJECT_NAMESPACE}-backend-cancel backend handle)
 ```
 
 ```python
@@ -43,8 +43,8 @@ This is the Smalltalk pattern. It gives us:
 - **Clear protocols between modules.** The set of generic functions on
   a class is the published API; everything else is private.
 - **Pluggability.** Subclass + override to mock, record, or swap
-  backends — `<reference-project>-acp-backend` vs. `<reference-project>-claude-code-backend`
-  both implement the same `<reference-project>-backend-*` protocol.
+  backends — `${PROJECT_NAMESPACE}-acp-backend` vs. `${PROJECT_NAMESPACE}-claude-code-backend`
+  both implement the same `${PROJECT_NAMESPACE}-backend-*` protocol.
 - **Hot-reload.** Redefining a `cl-defmethod` hot-swaps it everywhere
   the live system dispatches — no plumbing. Python: reloading the
   subclass module picks up new method bodies (with care).
@@ -55,9 +55,9 @@ A module typically has:
 
 1. **Condition-like errors** — raised via `error` with a structured
    `plist` payload, or wrapped by the caller's classification
-   (`<reference-project>-backend-classify-error` dispatches on backend type).
+   (`${PROJECT_NAMESPACE}-backend-classify-error` dispatches on backend type).
 2. **Entity classes** for identity + small state — `cl-defstruct` is
-   fine here (e.g. `<reference-project>-acp-backend` struct with agent-name,
+   fine here (e.g. `${PROJECT_NAMESPACE}-acp-backend` struct with agent-name,
    session-id, spawn-args slots).
 3. **Coordinator / registry classes** for modules with process state —
    the backend *is* the coordinator.
@@ -65,16 +65,16 @@ A module typically has:
    receiver:
 
 ```elisp
-(cl-defgeneric <reference-project>-backend-query (backend prompt callbacks))
-(cl-defgeneric <reference-project>-backend-cancel (backend handle))
-(cl-defgeneric <reference-project>-backend-cleanup (backend))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-query (backend prompt callbacks))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-cancel (backend handle))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-cleanup (backend))
 
-(cl-defmethod <reference-project>-backend-query
-  ((backend <reference-project>-acp-backend) prompt callbacks &rest args)
+(cl-defmethod ${PROJECT_NAMESPACE}-backend-query
+  ((backend ${PROJECT_NAMESPACE}-acp-backend) prompt callbacks &rest args)
   ...)
 ```
 
-Factory helpers like `<reference-project>-acp-opencode-create` stay as plain
+Factory helpers like `${PROJECT_NAMESPACE}-acp-opencode-create` stay as plain
 `defun`s — they don't need dispatch; they're wrappers over
 `make-instance`-equivalent.
 
@@ -125,18 +125,18 @@ class — structural typing keeps the protocol as the contract.
 
 ## Concrete examples in this repo
 
-**Good** — `<reference-project>-backend.org` defines a protocol:
+**Good** — `${PROJECT_NAMESPACE}-backend.org` defines a protocol:
 
 ```elisp
-(cl-defgeneric <reference-project>-backend-query (backend prompt callbacks &rest args))
-(cl-defgeneric <reference-project>-backend-cancel (backend handle))
-(cl-defgeneric <reference-project>-backend-cleanup (backend))
-(cl-defgeneric <reference-project>-backend-ready-p (backend))
-(cl-defgeneric <reference-project>-backend-classify-error (backend error))
-(cl-defgeneric <reference-project>-backend-supports-p (backend capability))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-query (backend prompt callbacks &rest args))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-cancel (backend handle))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-cleanup (backend))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-ready-p (backend))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-classify-error (backend error))
+(cl-defgeneric ${PROJECT_NAMESPACE}-backend-supports-p (backend capability))
 ```
 
-`<reference-project>-acp-backend`, `<reference-project>-claude-code-backend`, and others
+`${PROJECT_NAMESPACE}-acp-backend`, `${PROJECT_NAMESPACE}-claude-code-backend`, and others
 each `cl-defmethod` these generics. Caller (`code-agent-org.org`) dispatches
 on the backend instance.
 

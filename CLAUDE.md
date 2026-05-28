@@ -61,7 +61,7 @@ research; see `docs/transfer-gradient.org` for the figure + the
 ## Cowork (human + AI agent author pair)
 
 These five rules codify the protocols that emerged across 6+ months
-of <reference-project> + <meta-repo> + cmux cowork practice. They extend
+of ${PROJECT_NAMESPACE} + <meta-repo> + cmux cowork practice. They extend
 the dual-audience reader research to the dual-author authoring
 question. The proposed deepening loop is documented at
 `docs/cowork-research.org`.
@@ -266,7 +266,7 @@ for the file format and how to regenerate it.
 
 ## Notes for consuming repos
 
-Examples in the rules reference the `<reference-project>` and `<meta-repo>`
+Examples in the rules reference the `${PROJECT_NAMESPACE}` and `<meta-repo>`
 codebases (the rules' birthplaces). Adapt module prefixes, file
 names, and tangle targets to your own project — the *principles*
 are project-neutral.

@@ -2,10 +2,10 @@
 
 > *Last-validated*: 2026-05-20
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: <reference-project>; the principle generalises beyond that repo.
+> *Origin*: ${PROJECT_NAMESPACE}; the principle generalises beyond that repo.
 
 A designated `.org` file at the project root (the example below uses
-`<reference-project>-python.org`, the rule's birthplace) is the **single
+`${PROJECT_NAMESPACE}-python.org`, the rule's birthplace) is the **single
 source of truth** for all Python code in a literate-programming
 project. The `.py` files are generated artefacts produced by
 `org-babel-tangle`.
@@ -14,7 +14,7 @@ project. The `.py` files are generated artefacts produced by
 
 - **NEVER** edit any `.py` file directly. The PreToolUse hook
   (`.claude/hooks/block-python-tangled-edit.sh`) rejects Edit/Write/MultiEdit
-  on ALL `.py` files. Edit `<reference-project>-python.org` instead.
+  on ALL `.py` files. Edit `${PROJECT_NAMESPACE}-python.org` instead.
 - **NEVER** introduce a heading at depth > 5 in the .org file.
   `make check-python-structure` enforces this.
 - **NEVER** open a section that tangles to a `.py` with `#+begin_src`
@@ -65,7 +65,7 @@ Every tangle section uses:
 Two paths:
 
 1. **PostToolUse hook** (`.claude/hooks/tangle-python-org.sh`) — fires
-   when Claude edits `<reference-project>-python.org`. Prefers host Emacs,
+   when Claude edits `${PROJECT_NAMESPACE}-python.org`. Prefers host Emacs,
    falls back to `make tangle-python`.
 2. **Manual** — `make tangle-python` whenever you want to refresh.
 
@@ -74,7 +74,7 @@ Escape hatch: `LITERATE_ORG_NO_AUTO_TANGLE=1` skips the hook.
 ## LP commands
 
 ```bash
-make tangle-python           # tangle <reference-project>-python.org to .py
+make tangle-python           # tangle ${PROJECT_NAMESPACE}-python.org to .py
 make check-python-structure  # depth <= 5, no grab-bag, prose before src
 make build-python-index      # generate INDEX-python.org
 ```

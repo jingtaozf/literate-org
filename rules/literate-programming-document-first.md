@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-20
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: merged from <reference-project> (Elisp-leaning) and <meta-repo>
+> *Origin*: merged from ${PROJECT_NAMESPACE} (Elisp-leaning) and <meta-repo>
 > (Python/multi-submodule-leaning) versions; supports both layouts.
 
 **The single most important style rule in any literate-programming
@@ -17,7 +17,7 @@ prose over flat function lists.
 
 | Layout | Source of truth | Tangle output |
 |--------|-----------------|---------------|
-| Single-repo (e.g. <reference-project>) | `<module>.org` at the repo root | `python/<pkg>/*.py` or no tangle (literate-elisp loads .org directly) |
+| Single-repo (e.g. ${PROJECT_NAMESPACE}) | `<module>.org` at the repo root | `python/<pkg>/*.py` or no tangle (literate-elisp loads .org directly) |
 | Multi-submodule (e.g. <meta-repo>) | `lp/<sub>/<file>.org` | `repos/<sub>/<...>.py`, `.ts`, `.rs`, etc. |
 
 Both share the same prose-before-code discipline. Where layout-specific
@@ -68,11 +68,11 @@ details, not for the *reason* the code exists.
 
 Handles `session/request_permission` server-to-client requests from the
 agent. Default prompts the user via `completing-read` — C-g sends
-`outcome: cancelled`. `<reference-project>-acp-auto-approve` flips to legacy
+`outcome: cancelled`. `${PROJECT_NAMESPACE}-acp-auto-approve` flips to legacy
 first-option behaviour for trusted sandboxes.
 
 #+BEGIN_SRC elisp
-(defun <reference-project>-acp--handle-permission (backend request)
+(defun ${PROJECT_NAMESPACE}-acp--handle-permission (backend request)
   ...)
 #+END_SRC
 ```
@@ -87,8 +87,8 @@ defcustom). A reader who can't run Elisp still understands the intent.
 ** Functions
 
 #+BEGIN_SRC elisp
-(defvar <reference-project>-acp-auto-approve nil)
-(defun <reference-project>-acp--handle-permission (backend request) ...)
+(defvar ${PROJECT_NAMESPACE}-acp-auto-approve nil)
+(defun ${PROJECT_NAMESPACE}-acp--handle-permission (backend request) ...)
 #+END_SRC
 ```
 

@@ -2,7 +2,7 @@
 
 > *Last-validated*: 2026-05-20
 > *Review cadence*: quarterly — drop if 6 months without a triggering incident
-> *Origin*: <reference-project>; the principle generalises beyond that repo.
+> *Origin*: ${PROJECT_NAMESPACE}; the principle generalises beyond that repo.
 
 This repo's `docs/design-docs/` directory was emptied by the
 2026-04 LP migration that absorbed every separate design doc into
@@ -26,7 +26,7 @@ Three valid storage points, in order of preference:
 
 | Artefact | Lives in | Format |
 |----------|----------|--------|
-| New design proposal (under discussion, no consensus) | `<reference-project>-draft.org` (create if needed; sibling of the existing module .org files) | Top-level `* <year>-<slug>` section, like <meta-repo>'s `lp/draft.org` |
+| New design proposal (under discussion, no consensus) | `${PROJECT_NAMESPACE}-draft.org` (create if needed; sibling of the existing module .org files) | Top-level `* <year>-<slug>` section, like <meta-repo>'s `lp/draft.org` |
 | Approved design (consensus, ready to implement) | The module's existing `.org` file, inline in the affected section's prose preamble | Prose introducing the trade-off + the rejected alternative |
 | Approved cross-module design | The most-affected module's `.org` Overview section, with links to every other section it touches | Prose with `[[file:other.org::#anchor][label]]` cross-references |
 | Decision log (chronological "we did X because Y") | `RATIONALE.md` (already exists at repo root) | Append-only timeline |
@@ -46,12 +46,12 @@ implementation file defeats the unification:
   X" while the `.org` actually does Y because someone edited the
   `.org` but not the `.md`. The reader has no way to know which
   is current.
-- **One discovery surface.** A reader of `<reference-project>-backend.org`
+- **One discovery surface.** A reader of `${PROJECT_NAMESPACE}-backend.org`
   needs to know about every relevant design decision *while
   reading that file*. A separate `docs/design-docs/backend.md`
   requires a second discovery step the reader rarely takes.
 - **The diff carries the design.** When you `git log -p
-  <reference-project>-backend.org`, you see code + prose change together.
+  ${PROJECT_NAMESPACE}-backend.org`, you see code + prose change together.
   When design lives separately, the diff is two-file and you have
   to mentally join them.
 

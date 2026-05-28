@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Literate-programming rules, skills, and hooks for AI agents. Dual-audience documents that work for both human readers and AI agents.",
   "author": {
-    "name": "<author>",
+    "name": "Jingtao Xu",
     "email": "jt@jingtao.net"
   },
   "homepage": "https://github.com/jingtaozf/literate-agent",
