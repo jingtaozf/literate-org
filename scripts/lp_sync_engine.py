@@ -153,6 +153,10 @@ class _TreeSitterExtractor:
     def __init__(self):
         self._parser = None  # lazy
 
+    # Module-level warning dedup — print one warning per extractor class
+    # per Python process, not per-call (engines extract once per file).
+    _warned: set[str] = set()
+
     def _ensure_parser(self):
         if self._parser is not None:
             return
@@ -164,6 +168,20 @@ class _TreeSitterExtractor:
             self._parser = tree_sitter.Parser(lang)
         except Exception as exc:
             self._parser = exc  # sentinel: failed
+            # Surface the load failure ONCE per extractor — silent
+            # failure was the 2026-05-28 Rust/TS false-negative root
+            # cause (engine reported "synced" while extracting 0 defs).
+            key = f"{type(self).__name__}:{self.LANGUAGE_MODULE}"
+            if key not in _TreeSitterExtractor._warned:
+                _TreeSitterExtractor._warned.add(key)
+                import sys as _sys
+                print(
+                    f"[lp-sync] WARN: {type(self).__name__} cannot load "
+                    f"{self.LANGUAGE_MODULE!r} ({type(exc).__name__}: {exc}). "
+                    f"All extracts will return 0 defs. "
+                    f"Install: pip install {self.LANGUAGE_MODULE.replace('_', '-')}",
+                    file=_sys.stderr,
+                )
 
     def extract(self, source: str) -> dict[str, DefInfo]:
         self._ensure_parser()
@@ -172,7 +190,13 @@ class _TreeSitterExtractor:
         src_bytes = source.encode("utf-8")
         try:
             tree = self._parser.parse(src_bytes)
-        except Exception:
+        except Exception as exc:
+            import sys as _sys
+            print(
+                f"[lp-sync] WARN: {type(self).__name__} parse failed "
+                f"({type(exc).__name__}: {exc}); returning 0 defs.",
+                file=_sys.stderr,
+            )
             return {}
         result: dict[str, DefInfo] = {}
         for child in tree.root_node.children:
@@ -611,6 +635,25 @@ class LpSyncEngine:
         self.extractor = BlockDefExtractor()
         self.python = PythonDefExtractor()
 
+    # File-extension → language id used by sync_file for old/new source
+    # extraction. Mirrors the CLI --extract-defs dispatch (kept in sync;
+    # both routes must pick the matching extractor or Rust/TS sync
+    # silently degrades to Python parsing → 0 defs → "synced" false neg.)
+    _EXT_TO_LANG = {
+        ".py":  "python",
+        ".pyi": "python",
+        ".ts":  "typescript",
+        ".tsx": "tsx",
+        ".rs":  "rust",
+    }
+
+    def _extractor_for_path(self, rel_path: str):
+        suffix = Path(rel_path).suffix.lower()
+        lang = self._EXT_TO_LANG.get(suffix)
+        if lang is None:
+            return None
+        return get_extractor(lang)
+
     def sync_file(self, org_path: Path, source_repo: Path | None = None,
                   dry_run: bool = True) -> dict:
         """Sync one .org file. Returns summary dict."""
@@ -643,19 +686,43 @@ class LpSyncEngine:
             return {"status": "bump-sha-only", "old_sha": old_sha[:12],
                     "new_sha": new_sha[:12]}
 
-        # Per affected file: extract old + new defs; classify
+        # Per affected file: extract old + new defs; classify.
+        # Pick the extractor by file extension — Python is NOT the
+        # default for non-.py sources (the 2026-05-28 Rust/TS
+        # false-negative root cause).
         changes = []
         for rel in affected:
             old_text = self._git_show(source_repo, old_sha, rel)
             new_text = self._git_show(source_repo, new_sha, rel)
-            if old_text is None:
+            extractor = self._extractor_for_path(rel)
+            if extractor is None:
+                # Unknown extension — skip (don't silently default to Python).
+                import sys as _sys
+                print(
+                    f"[lp-sync] WARN: no extractor for {rel} "
+                    f"(suffix {Path(rel).suffix!r}); 0 defs assumed.",
+                    file=_sys.stderr,
+                )
                 old_defs: dict[str, DefInfo] = {}
+                new_defs: dict[str, DefInfo] = {}
             else:
-                old_defs = self.python.extract(old_text)
-            if new_text is None:
-                new_defs = {}
-            else:
-                new_defs = self.python.extract(new_text)
+                old_defs = extractor.extract(old_text) if old_text else {}
+                new_defs = extractor.extract(new_text) if new_text else {}
+                if new_text and not new_defs:
+                    # Loud signal: source has content but extractor saw
+                    # nothing. Either binding missing (warning printed by
+                    # _ensure_parser), or genuinely empty of defs. Engine
+                    # callers should NOT treat this as "synced — nothing
+                    # changed."
+                    import sys as _sys
+                    print(
+                        f"[lp-sync] WARN: extractor "
+                        f"{type(extractor).__name__} returned 0 defs "
+                        f"from {rel} ({len(new_text)} bytes of source). "
+                        f"If you expected defs, check the tree-sitter "
+                        f"binding install.",
+                        file=_sys.stderr,
+                    )
             classified = self._classify(old_defs, new_defs)
             changes.append({
                 "file": rel,
