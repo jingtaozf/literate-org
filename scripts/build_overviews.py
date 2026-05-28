@@ -235,7 +235,11 @@ def _read_title(f: Path) -> str:
 def collect_lp_files(grp_dir: Path) -> list[tuple[str, str]]:
     """Return [(filename, #+TITLE)] for every .org in the group dir
     (recursing into a single ``tests/`` subdir for <scout-server>).
-    Excludes README.org itself and underscore-prefixed scratch files."""
+
+    Excludes ``_project.org`` (the file we're rendering — would self-
+    reference) and other underscore-prefixed scratch files. README.org
+    is INCLUDED so it shows up first in the rendered index — that is
+    the hand-curated entry point readers should land on."""
     out: list[tuple[str, str]] = []
     for f in sorted(grp_dir.iterdir()):
         if f.is_dir() and f.name == "tests":
@@ -246,16 +250,21 @@ def collect_lp_files(grp_dir: Path) -> list[tuple[str, str]]:
                     continue
                 out.append((f"tests/{sub.name}", _read_title(sub)))
             continue
-        if (f.name.startswith(("#",))
+        if (f.name.startswith(("#", "_"))
                 or f.suffix != ".org"
-                or f.name.endswith("~")
-                or f.name == "README.org"):
+                or f.name.endswith("~")):
             continue
         out.append((f.name, _read_title(f)))
     return out
 
 
-def render_group_readme(grp: str, info: dict, lp_files: list[tuple[str, str]]) -> str:
+def render_group_project(grp: str, info: dict, lp_files: list[tuple[str, str]]) -> str:
+    """Render `lp/<grp>/_project.org` — the script-managed thin overview.
+
+    This is the file `build_overviews.py` owns end-to-end (fully
+    rewritten on every run). `lp/<grp>/README.org` is intentionally
+    NOT managed by the script — see `render_group_readme_stub`.
+    """
     elevator = info["elevator"]
     groups = info["groups"]
     read_order = info["read_order"]
@@ -277,17 +286,20 @@ def render_group_readme(grp: str, info: dict, lp_files: list[tuple[str, str]]) -
 
     return f"""\
 # -*- Mode: POLY-ORG; indent-tabs-mode: nil;  -*- ---
-#+TITLE: {grp} — LP entry point
+#+TITLE: {grp} — project overview
 #+OPTIONS: tex:verbatim toc:nil \\n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
 #+STARTUP: noindent
 
 * Why this file exists
 
-Entry-point document for ``lp/{grp}/``. A senior engineer landing here
-should be able to: (1) understand what this submodule is, (2) know
-which file owns which subsystem, (3) pick a sensible read order. For
-deeper architectural prose see ``_project.org`` in this folder; for
-the file-by-file index scroll to the bottom of this README.
+Script-managed *project overview* for ``lp/{grp}/``. The senior
+engineer's reading entry is [[file:README.org][=README.org=]] (rich,
+hand-curated). This file holds the auto-regenerated short form: a
+one-paragraph elevator, the file-role map, a recommended read order,
+and the LP-files index. Every run of ``make build-overviews``
+rewrites this file from scratch — do not hand-edit. To update the
+narrative, edit ``[groups.{grp}]`` in
+``.literate-agent/buckets.toml`` and re-run the script.
 
 * What this submodule is
 
@@ -310,6 +322,36 @@ Auto-generated from each ``.org``'s ``#+TITLE``. Regenerate via
 """
 
 
+def render_group_readme_stub(grp: str, info: dict) -> str:
+    """Render the *bootstrap* README.org — only written when missing.
+
+    Provides a minimal stub pointing at `_project.org`; the consumer
+    is expected to fill in rich, hand-curated content here. The
+    script never overwrites an existing README.org.
+    """
+    elevator = info["elevator"]
+    return f"""\
+# -*- Mode: POLY-ORG; indent-tabs-mode: nil;  -*- ---
+#+TITLE: {grp}
+#+OPTIONS: tex:verbatim toc:nil \\n:nil @:t ::t |:t ^:nil -:t f:t *:t <:t
+#+STARTUP: noindent
+
+* {grp}
+
+{elevator}
+
+This README is *hand-maintained* — fill it with the rich narrative
+that survives the script. The auto-generated short form (elevator
++ file-role map + read order + LP-files index) lives in
+[[file:_project.org][=_project.org=]]; ``make build-overviews``
+regenerates that file on every run but never touches this one.
+
+See also:
+
+- [[file:_project.org][=_project.org=]] — script-managed project overview.
+"""
+
+
 def render_root_readme() -> str:
     """Render the root README.org with three-bucket submodule table."""
     bucket_blocks = []
@@ -324,7 +366,7 @@ def render_root_readme() -> str:
             first = re.sub(rf"^=*{re.escape(grp)}=*\s+(?:is\s+)?", "", first)
             first = first[:1].upper() + first[1:] if first else ""
             rows.append(
-                f"| [[file:lp/{grp}/README.org][={grp}=]] | {first} |"
+                f"| [[file:lp/{grp}/_project.org][={grp}=]] | {first} |"
             )
         bucket_blocks.append(
             f"** {bucket_name}\n\n"
@@ -444,15 +486,28 @@ def main(argv: list[str]) -> int:
     # Discover consumer config; placeholders in rendered output expand against it.
     cfg = load_config()
 
-    # Per-group READMEs
+    # Per-group artefacts:
+    #   - _project.org — always rewritten (script-owned).
+    #   - README.org   — bootstrap-only; never overwritten if it exists.
     for grp, info in sorted(GROUP_NARRATIVE.items()):
         grp_dir = LP_ROOT / grp
         if not grp_dir.is_dir():
             print(f"SKIP (missing): {grp}")
             continue
         lp_files = collect_lp_files(grp_dir)
-        content = expand_placeholders(render_group_readme(grp, info, lp_files), cfg)
-        ok &= _write_or_check(grp_dir / "README.org", content, args.check)
+        project_content = expand_placeholders(
+            render_group_project(grp, info, lp_files), cfg
+        )
+        ok &= _write_or_check(grp_dir / "_project.org", project_content, args.check)
+
+        # README bootstrap — write a thin stub ONLY if README.org is missing.
+        # Existing READMEs (hand-curated rich content) are left untouched.
+        readme_path = grp_dir / "README.org"
+        if not readme_path.exists():
+            stub = expand_placeholders(render_group_readme_stub(grp, info), cfg)
+            ok &= _write_or_check(readme_path, stub, args.check)
+            if not args.check:
+                print(f"BOOTSTRAP: {readme_path.relative_to(LP_ROOT.parent)}")
 
     # Root README — only auto-generate for meta-repo shape. Plugin-consumer
     # and single-repo-lp consumers maintain their READMEs by hand.
