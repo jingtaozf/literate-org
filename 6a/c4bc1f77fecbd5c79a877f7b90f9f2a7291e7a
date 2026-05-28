@@ -1,0 +1,43 @@
+examples/meta-repo/.literate-agent/config.toml
+  s_de2379fa012956::t_e4b2442ff63d35 1-30
+README.org
+  s_de2379fa012956::t_f3e78ec876f36d 1-2,4-6,8-11,13-16,18,20-22,24-59,61,63-65,67,69-71,73-74,76-79,81-84,86-87,89-94,96-100,103-108,110-111,113-115,117-172
+scripts/build_index.py
+  s_de2379fa012956::t_00724ad4d59e74 386-393
+examples/meta-repo/CLAUDE.md
+  s_de2379fa012956::t_9aac0488d25351 1-29
+rules/placeholder-convention.md
+  s_de2379fa012956::t_b76bb6a687fd21 1-99
+docs/config.org
+  s_de2379fa012956::t_9e32caf0cd16d2 1-210
+examples/plugin-consumer/.literate-agent/config.toml
+  s_de2379fa012956::t_c56f75bc2f362e 1-28
+examples/meta-repo/README.md
+  s_de2379fa012956::t_30f92a8554b8d6 1-44
+scripts/build_readme.py
+  s_de2379fa012956::t_59b94367536529 418-419,428
+  s_de2379fa012956::t_260dbac0620214 431-441
+  s_de2379fa012956::t_ce6f62b6284b04 37-51
+scripts/load_config.py
+  s_de2379fa012956::t_7eae72998b9706 1-153
+examples/plugin-consumer/CLAUDE.md
+  s_de2379fa012956::t_1e766f7cb8cd01 1-31
+examples/plugin-consumer/README.md
+  s_de2379fa012956::t_8e0945e62500e0 1-50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6ac4bc1f77fecbd5c79a877f7b90f9f2a7291e7a",
+  "prompts": {},
+  "sessions": {
+    "s_de2379fa012956": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aae50d36-0d7c-47ad-8925-ecbf0e74997a",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
