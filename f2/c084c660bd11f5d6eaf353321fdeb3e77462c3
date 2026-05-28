@@ -1,0 +1,22 @@
+scripts/build_overviews.py
+  s_a20781a201d1ed::t_c5015a2f458fa0 369
+  s_a20781a201d1ed::t_286f15adff83c7 489-491,498-510
+  s_a20781a201d1ed::t_4a5830bae70021 261-267,289,295-302,325-351
+  s_a20781a201d1ed::t_d1bcd15d7a84ff 238-242,253,255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f2c084c660bd11f5d6eaf353321fdeb3e77462c3",
+  "prompts": {},
+  "sessions": {
+    "s_a20781a201d1ed": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b78bc4c7-c9d6-4166-ab28-a71795530262",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "Jingtao Xu <jingtaozf@gmail.com>"
+    }
+  }
+}
