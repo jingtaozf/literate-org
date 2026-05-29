@@ -2599,17 +2599,34 @@ To investigate the parse tree, we can use Emacs command [[https://github.com/ema
     (while (< current-index count-of-children)
       (cl-multiple-value-setq (next-index next-title)
         (literate-org-next-code-block-index language root current-index))
-      (setf code-blocks
-              (nconc code-blocks
-                     (list
-                      (make-literate-org-code-block
-                       :title (dired-replace-in-string "\n" " " next-title)
-                       :body (let ((begin (tsc-node-start-position (ts-get-nth-child root current-index)))
-                                   (end (tsc-node-end-position (ts-get-nth-child root next-index))))
-                               (concat (buffer-substring-no-properties begin end) "\n"))
-                       :language language
-                       :level section-level))))
-      (setf current-index (1+ next-index)))
+      ;; Absorb a same-line trailing comment into this block so that
+      ;; `X = ...  # comment` is not split across two blocks (the
+      ;; comment is a separate source_file child in tree-sitter, but
+      ;; byte-equivalence requires it to stay on the statement's line).
+      ;; A comment on its OWN line (newline between) is NOT absorbed —
+      ;; it still flows to the next block as a leading doc comment.
+      (let ((end-index next-index)
+            (cand (1+ next-index)))
+        (when (< cand count-of-children)
+          (let ((cand-node (ts-get-nth-child root cand))
+                (last-end (tsc-node-end-position (ts-get-nth-child root next-index))))
+            (when (and (eq 'comment (ts-node-type cand-node))
+                       (not (string-match-p
+                             "\n"
+                             (buffer-substring-no-properties
+                              last-end (tsc-node-start-position cand-node)))))
+              (setf end-index cand))))
+        (setf code-blocks
+                (nconc code-blocks
+                       (list
+                        (make-literate-org-code-block
+                         :title (dired-replace-in-string "\n" " " next-title)
+                         :body (let ((begin (tsc-node-start-position (ts-get-nth-child root current-index)))
+                                     (end (tsc-node-end-position (ts-get-nth-child root end-index))))
+                                 (concat (buffer-substring-no-properties begin end) "\n"))
+                         :language language
+                         :level section-level))))
+        (setf current-index (1+ end-index))))
     (cons module-comment code-blocks)))
 #+END_SRC
 
@@ -2770,6 +2787,611 @@ function:
                        "\n")
                (insert it)
                (insert "\n#+END_SRC\n")))))
+#+END_SRC
+**** Resplit an oversized atomic block in place
+
+=literate-org-import= writes one block per top-level definition when it
+imports a *fresh* file. A module onboarded the fast way — one atomic
+=#+begin_src= block per file — never got that treatment, and re-running
+=literate-org-import= would regenerate the whole section and clobber the
+prose written since. =literate-org-resplit-block-at-point= is the
+in-place variant: it reuses the same tree-sitter parser
+(=literate-org-get-code-blocks-in-current-buffer=) to split the single
+block into one child per definition, but leaves the heading, properties
+drawer, and prose preamble untouched.
+
+It splits only at the top level — exactly what the parser yields. A
+section holding a single big class still needs the manual noweb
+per-method split (see =lp-noweb-for-big-blocks=), so the command refuses
+that case rather than emit a no-op single child.
+
+The split changes whitespace only. Org-Babel trims each block's leading
+and trailing blank lines at tangle, so the blank lines that separated the
+original top-level definitions collapse; the tangled file is identical to
+the original in *content* and differs only in blank-line spacing. If the
+project wires a formatter into its tangle path that reproduces its own
+style, the spacing comes back; otherwise the tighter spacing is the
+accepted result. After resplitting, refresh
+=:LITERATE_ORG_CONTAINS_DEFS:= with =lp_metadata_refresh.py=.
+
+***** The split threshold
+
+=literate-org-resplit-buffer= only resplits a block whose body exceeds
+this many *lines*. The default targets the genuinely oversized blocks —
+the ones that hurt readability — and leaves small atomic blocks alone,
+where splitting into sub-headings adds structure without payoff.
+
+#+BEGIN_SRC elisp
+(defcustom literate-org-resplit-threshold 120
+  "Minimum body *line* count for `literate-org-resplit-buffer' to resplit
+a :tangle-bearing atomic block. Blocks at or below this stay atomic —
+only oversized blocks are worth the per-definition split."
+  :type 'integer
+  :group 'literate-org)
+#+END_SRC
+
+***** Locating the block and counting its lines
+
+=--first-src-block-in-subtree= finds the section's own =#+begin_src=
+without descending into children, so a section that has *already* been
+split is left alone. =--section-src-line-count= counts the first src
+block's body lines by a plain text scan — no =org-element= — so
+=literate-org-resplit-buffer= can size every section in a 25k-line buffer
+without the per-heading parse cost that makes the org-element path
+quadratic.
+
+#+BEGIN_SRC elisp
+(defun literate-org--first-src-block-in-subtree ()
+  "Return the org-element of the first src block in the subtree of the
+heading at point, or nil. Widens first so a poly-org chunk narrowing
+does not hide the heading or the block."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (org-back-to-heading t)
+      (let ((subtree-end (save-excursion (org-end-of-subtree t t)))
+            (found nil))
+        (forward-line 1)
+        (while (and (not found)
+                    (re-search-forward "^[ \t]*#\\+begin_src\\b" subtree-end t))
+          (let ((el (org-element-at-point)))
+            (if (eq (org-element-type el) 'src-block)
+              (setf found el)
+              (forward-line 1))))
+        found))))
+
+(defun literate-org--section-src-line-count ()
+  "Body line count of the first src block in the subtree at point, by a
+text scan (no org-element). Returns nil when the section has no src
+block. Point may be anywhere at or under the heading."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (org-back-to-heading t)
+      (let ((end (save-excursion (org-end-of-subtree t t))))
+        (when (re-search-forward "^[ \t]*#\\+begin_src" end t)
+          (let ((body-start (line-beginning-position 2)))
+            (when (re-search-forward "^[ \t]*#\\+end_src" end t)
+              (count-lines body-start (line-beginning-position)))))))))
+#+END_SRC
+
+***** The noise floor — only split out a chunk over this many lines
+
+Replaces the per-*file* line threshold with a per-*definition* noise
+floor. A top-level definition (or a class method) earns its own section
+only when its body exceeds this many lines; smaller definitions group
+with their neighbours so the split stays readable. Structure decides
+*whether* to split; this number only decides *what is too small to be
+worth isolating*.
+
+#+BEGIN_SRC elisp
+(defcustom literate-org-noweb-min-chunk-lines 10
+  "A definition must exceed this many *body lines* to earn its own
+section / noweb chunk. Smaller definitions are grouped with neighbours so
+the split does not fragment into one-liner sections."
+  :type 'integer
+  :group 'literate-org)
+#+END_SRC
+
+***** Tree helpers shared by every language
+
+Small wrappers over tree-sitter that the language-specific
+=literate-org-split-node= methods build on. =--dedent= strips a fixed
+indent from each line so a method extracted from inside a class can be
+stored at column 0 — Org-Babel re-indents it to the =<<chunk>>=
+placeholder's column on tangle, so no manual re-indent is needed.
+
+#+BEGIN_SRC elisp
+(defun literate-org--node-line-count (node)
+  "Line span of tree-sitter NODE."
+  (count-lines (tsc-node-start-position node) (tsc-node-end-position node)))
+
+(defun literate-org--dedent (text n)
+  "Remove up to N leading spaces from each line of TEXT."
+  (if (<= n 0) text
+    (replace-regexp-in-string (concat "^" (make-string n ?\s)) "" text)))
+
+(defun literate-org--column-at (pos)
+  "Visual column of buffer position POS."
+  (save-excursion (goto-char pos) (current-column)))
+
+(defun literate-org--child-of-type (node type)
+  "First child of NODE whose node-type is TYPE, or nil."
+  (cl-loop for i below (tsc-count-children node)
+           for c = (tsc-get-nth-child node i)
+           when (eq type (tsc-node-type c)) return c))
+
+(defun literate-org--brace-bounds (body)
+  "For a braced body container BODY, return (INTERIOR-START . INTERIOR-END)
+spanning between the opening and closing brace tokens."
+  (let (op cl)
+    (cl-loop for i below (tsc-count-children body)
+             for c = (tsc-get-nth-child body i)
+             do (let ((ty (tsc-node-type c)))
+                  (cond ((equal ty "{") (setq op c))
+                        ((equal ty "}") (setq cl c)))))
+    (cons (tsc-node-end-position op) (tsc-node-start-position cl))))
+
+(defun literate-org--members-of-types (body types)
+  "Direct children of BODY whose node-type is in TYPES."
+  (cl-loop for i below (tsc-count-children body)
+           for c = (tsc-get-nth-child body i)
+           when (memq (tsc-node-type c) types) collect c))
+
+(defun literate-org--big-members (members)
+  "From MEMBERS keep those over the chunk floor, as (START END TITLE)."
+  (cl-loop for m in members
+           when (> (literate-org--node-line-count m) literate-org-noweb-min-chunk-lines)
+           collect (list (tsc-node-start-position m) (tsc-node-end-position m)
+                         (let ((nm (tsc-get-child-by-field m :name)))
+                           (if nm (tsc-node-text nm) "def")))))
+#+END_SRC
+
+***** =literate-org-split-node= — the per-language container rule
+
+Given a tree-sitter node, return a plist describing how to noweb-split it
+into a skeleton + chunks, or nil to leave it as one atomic block. A
+container splits only when it holds *≥2 members over the noise floor* —
+that is the structure-driven decision that replaces a line constant. Each
+language method answers the same two questions in its own grammar's
+terms: what is the body container (=block= / =declaration_list= /
+=class_body=), and what are its member definitions. Adding a language is
+one =cl-defmethod=, no edits elsewhere.
+
+#+BEGIN_SRC elisp
+(cl-defgeneric literate-org-split-node (language node-type node)
+  "Return a split plist (:ref :envelope :indent :istart :iend :big) for
+NODE, or nil to keep it atomic."
+  (:method (_l _t _n) nil))
+
+(defun literate-org--split-braced (node body members-types name lang-indent-default)
+  "Shared split for brace-delimited bodies (rust impl, ts class). NODE's
+body container is BODY; its members are children of types MEMBERS-TYPES;
+NAME names the chunk."
+  (let* ((bb (literate-org--brace-bounds body))
+         (members (literate-org--members-of-types body members-types))
+         (big (literate-org--big-members members))
+         (indent (if members (literate-org--column-at (tsc-node-start-position (car members)))
+                   lang-indent-default))
+         (sig (buffer-substring-no-properties (tsc-node-start-position node)
+                                              (tsc-node-start-position body))))
+    (when (>= (length big) 2)
+      (list :ref (concat name "-body") :indent indent
+            :envelope (concat sig "{\n" (make-string indent ?\s) "<<" name "-body>>\n}")
+            :istart (car bb) :iend (cdr bb) :big big))))
+
+(cl-defmethod literate-org-split-node ((_l (eql python)) (_t (eql class_definition)) node)
+  (let ((block (literate-org--child-of-type node 'block)))
+    (when block
+      (let* ((indent (literate-org--column-at (tsc-node-start-position block)))
+             (members (literate-org--members-of-types
+                       block '(function_definition decorated_definition)))
+             (big (literate-org--big-members members))
+             (name (tsc-node-text (tsc-get-child-by-field node :name)))
+             (sig (buffer-substring-no-properties (tsc-node-start-position node)
+                                                  (tsc-node-start-position block))))
+        (when (>= (length big) 2)
+          (list :ref (concat name "-body") :indent indent
+                :envelope (concat sig "<<" name "-body>>")
+                :istart (tsc-node-start-position block)
+                :iend (tsc-node-end-position block) :big big))))))
+
+(cl-defmethod literate-org-split-node ((_l (eql rust)) (_t (eql impl_item)) node)
+  (awhen (literate-org--child-of-type node 'declaration_list)
+    (literate-org--split-braced
+     node it '(function_item)
+     (let ((ty (literate-org--child-of-type node 'type_identifier)))
+       (if ty (tsc-node-text ty) "Impl"))
+     4)))
+
+(cl-defmethod literate-org-split-node ((_l (eql typescript)) (_t (eql class_declaration)) node)
+  (awhen (literate-org--child-of-type node 'class_body)
+    (literate-org--split-braced
+     node it '(method_definition public_field_definition)
+     (let ((ty (literate-org--child-of-type node 'type_identifier)))
+       (if ty (tsc-node-text ty) "Class"))
+     2)))
+#+END_SRC
+
+***** Tiling a container body into leaf chunks
+
+The interior of a container is *tiled* by its big members: each big
+member becomes its own leaf; the text between big members (small methods,
+fields, the docstring, punctuation) accumulates into "members" leaves.
+Tiling by text slice — not by reconstructing from member nodes —
+preserves every byte between definitions (TypeScript field semicolons,
+blank lines) that a node-only rebuild would drop. Each leaf is dedented
+so Org-Babel can re-indent it under the skeleton placeholder.
+
+#+BEGIN_SRC elisp
+(defun literate-org--tile-leaves (split)
+  "Tile the container interior described by SPLIT into a list of
+(TITLE . BODY) leaves, big members isolated and small runs grouped."
+  (let* ((indent (plist-get split :indent))
+         (istart (plist-get split :istart))
+         (iend (plist-get split :iend))
+         (big (sort (copy-sequence (plist-get split :big))
+                    (lambda (a b) (< (car a) (car b)))))
+         (cursor istart) (leaves nil))
+    (dolist (b big)
+      (cl-destructuring-bind (ms me ttl) b
+        (when (> ms cursor)
+          (let ((seg (literate-org--dedent
+                      (buffer-substring-no-properties cursor ms) indent)))
+            (unless (string-blank-p seg) (push (cons "members" seg) leaves))))
+        (push (cons ttl (literate-org--dedent
+                         (buffer-substring-no-properties ms me) indent))
+              leaves)
+        (setq cursor me)))
+    (when (< cursor iend)
+      (let ((seg (literate-org--dedent
+                  (buffer-substring-no-properties cursor iend) indent)))
+        (unless (string-blank-p seg) (push (cons "members" seg) leaves))))
+    (nreverse leaves)))
+#+END_SRC
+
+***** From a file body to a list of units
+
+=--file-units= tiles the *whole file body* the same way: top-level
+definitions over the floor become their own units; smaller top-level
+statements (imports, module constants, the =app = Typer()= cluster) group
+into "members" units instead of fragmenting into one-liner sections. A
+big top-level class that =literate-org-split-node= accepts becomes a
+=noweb= unit; everything else is =atomic=. Noweb is suppressed when the
+section sits too deep for its leaves to stay within the depth-5 cap.
+
+#+BEGIN_SRC elisp
+(defun literate-org--unit-title (language node)
+  "A heading title for top-level NODE."
+  (condition-case nil
+      (literate-org-node-name language (tsc-node-type node) node)
+    (error (let ((nm (tsc-get-child-by-field node :name)))
+             (if nm (tsc-node-text nm) (symbol-name (tsc-node-type node)))))))
+
+(defun literate-org--file-units (body language level)
+  "Tile BODY into a list of units. Each unit is either
+(atomic TITLE BODY) or (noweb TITLE REF ENVELOPE LEAVES)."
+  (with-temp-buffer
+    (insert body)
+    (let* ((language (literate-org-alias-language language))
+           (tree (literate-org-parse-tree-for-current-file language))
+           (root (tsc-root-node tree))
+           (count (tsc-count-children root))
+           (floor literate-org-noweb-min-chunk-lines)
+           (allow-noweb (<= (+ level 2) 5))
+           (cursor (point-min)) (units nil))
+      (cl-loop for i below count
+               for node = (tsc-get-nth-child root i) do
+               (when (> (literate-org--node-line-count node) floor)
+                 (let ((ns (tsc-node-start-position node))
+                       (ne (tsc-node-end-position node)))
+                   (when (> ns cursor)
+                     (let ((seg (buffer-substring-no-properties cursor ns)))
+                       (unless (string-blank-p seg)
+                         (push (list 'atomic "members" seg) units))))
+                   (let ((split (and allow-noweb
+                                     (literate-org-split-node
+                                      language (tsc-node-type node) node))))
+                     (if split
+                         (push (list 'noweb (literate-org--unit-title language node)
+                                     (plist-get split :ref) (plist-get split :envelope)
+                                     (literate-org--tile-leaves split))
+                               units)
+                       (push (list 'atomic (literate-org--unit-title language node)
+                                   (buffer-substring-no-properties ns ne))
+                             units)))
+                   (setq cursor ne))))
+      (when (< cursor (point-max))
+        (let ((seg (buffer-substring-no-properties cursor (point-max))))
+          (unless (string-blank-p seg)
+            (push (list 'atomic "members" seg) units))))
+      (nreverse units))))
+#+END_SRC
+
+***** Emitting the units
+
+Walks the unit list and writes Org. An =atomic= unit is a sub-heading
+with a bare =:padline no= src block that inherits the file section's
+=:tangle=. A =noweb= unit is a skeleton sub-heading (its own
+=:header-args: :tangle no :noweb-ref REF= so the leaves inherit it, plus
+=:CUSTOM_ID:= + =:LITERATE_ORG_BLOCK_KIND: skeleton:=) whose one block
+tangles the envelope with =:noweb yes=, followed by one =noweb-leaf=
+sub-sub-heading per chunk. Bodies are re-escaped so a column-0 =*= /
+=#+= cannot terminate the block, and stamped =:LITERATE_ORG_CONTAINS_DEFS:=
+is left to =lp_metadata_refresh.py=.
+
+#+BEGIN_SRC elisp
+(defun literate-org--anchor (ref)
+  "A CUSTOM_ID slug derived from a noweb REF."
+  (downcase (replace-regexp-in-string "[^A-Za-z0-9]+" "-" ref)))
+
+(defun literate-org--emit-src (lang body header-extra)
+  "Insert a src block of LANG with BODY; HEADER-EXTRA is the header
+remainder after the language (e.g. \" :padline no\")."
+  (insert "#+BEGIN_SRC " lang header-extra "\n")
+  (insert (org-escape-code-in-string body))
+  (unless (string-suffix-p "\n" body) (insert "\n"))
+  (insert "#+END_SRC\n\n"))
+
+(defun literate-org--emit-units (units language tangle level)
+  "Emit UNITS as Org under a file section at LEVEL tangling to TANGLE."
+  (let ((lang (literate-org-babel-language-name language))
+        (clevel (1+ level)))
+    (dolist (u units)
+      (pcase (car u)
+        ('atomic
+         (cl-destructuring-bind (_ title body) u
+           (insert (make-string clevel ?*) " " title "\n")
+           (insert "Prose pending (auto-split): " title ".\n\n")
+           (literate-org--emit-src lang body " :padline no")))
+        ('noweb
+         (cl-destructuring-bind (_ title ref envelope leaves) u
+           ;; CUSTOM_ID must NOT equal the noweb-ref: Org resolves
+           ;; =<<Foo-body>>= against CUSTOM_ID/NAME targets too (case-
+           ;; insensitively), so a CUSTOM_ID "foo-body" hijacks the
+           ;; reference and expands it to the whole subtree. Derive the
+           ;; anchor from the class name (ref minus the "-body" suffix).
+           (let ((cid (literate-org--anchor
+                       (replace-regexp-in-string "-body\\'" "" ref))))
+             (insert (make-string clevel ?*) " " title "\n")
+             (insert ":PROPERTIES:\n:CUSTOM_ID: " cid
+                     "\n:LITERATE_ORG_BLOCK_KIND: skeleton\n:header-args: :tangle no :noweb-ref "
+                     ref "\n:END:\n")
+             (insert "Prose pending (auto-split): =" title "= skeleton.\n\n")
+             (literate-org--emit-src lang envelope
+                                     (concat " :tangle " tangle " :noweb yes :noweb-ref \"\""))
+             ;; Leaves are collected into the chunk by :noweb-ref, never
+             ;; tangled directly, so they need no :padline.
+             (dolist (lf leaves)
+               (insert (make-string (1+ clevel) ?*) " " (car lf) "\n")
+               (insert ":PROPERTIES:\n:LITERATE_ORG_BLOCK_KIND: noweb-leaf\n:LITERATE_ORG_NOWEB_PARENT: "
+                       cid "\n:END:\n")
+               (insert "Prose pending (auto-split): " (car lf) ".\n\n")
+               (literate-org--emit-src lang (cdr lf) "")))))))))
+#+END_SRC
+
+***** The resplit command
+
+The core does the work and returns the unit count; the interactive
+command wraps it in =save-excursion= and reports the verification step.
+Every guard runs *before* the first buffer edit, so a refused section is
+left exactly as it was. A single big class becomes one =noweb= unit (the
+split is the point); a section with nothing worth isolating raises
+=user-error=.
+
+#+BEGIN_SRC elisp
+(defun literate-org--resplit-section ()
+  "Split the atomic :tangle block in the section at point into per-unit
+sub-headings (top-level definitions atomic; big classes noweb). Returns
+the unit count. Signals `user-error' when the section has no :tangle
+target, sits at the depth-5 cap, has no src block, or has nothing worth
+splitting."
+  (widen)
+  (org-back-to-heading t)
+  (let* ((level (org-current-level))
+         (header-args (org-entry-get (point) "header-args" t))
+         (tangle (and header-args
+                      (string-match ":tangle +\\(\\S-+\\)" header-args)
+                      (match-string 1 header-args)))
+         (heading (point-marker)))
+    (unless (and tangle (not (string= tangle "no")))
+      (user-error "No :tangle target — nothing to resplit"))
+    (when (>= level 5)
+      (user-error "Section at depth %d — children would breach the depth-5 cap" level))
+    (let ((el (literate-org--first-src-block-in-subtree)))
+      (unless el
+        (user-error "No src block in this section"))
+      (let* ((lang (intern (or (org-element-property :language el) "python")))
+             (body (org-element-property :value el))
+             (units (literate-org--file-units body lang level))
+             (beg (org-element-property :begin el))
+             (end (org-element-property :end el)))
+        (when (or (null units)
+                  (and (= (length units) 1) (eq (caar units) 'atomic)))
+          (user-error "Nothing worth splitting in this section"))
+        ;; Inhibit modification hooks across the bulk edit: in a poly-org
+        ;; buffer every insert otherwise fires polymode's after-change
+        ;; rescan over the whole file (O(file) per insert — quadratic, and
+        ;; its chunk-matcher rx chokes on the freshly inserted text). The
+        ;; saved file is correct; refontify lazily afterwards.
+        (let ((inhibit-modification-hooks t))
+          (goto-char beg)
+          (delete-region beg end)
+          (literate-org--emit-units units lang tangle level)
+          (goto-char heading)
+          (when (org-entry-get (point) "LITERATE_ORG_BLOCK_KIND")
+            (org-entry-delete (point) "LITERATE_ORG_BLOCK_KIND")))
+        (length units)))))
+
+(defun literate-org-resplit-block-at-point ()
+  "Split the atomic :tangle block in the section at point into per-unit
+sub-headings, noweb-splitting big classes, preserving the prose preamble.
+
+Changes whitespace only at tangle (Org-Babel trims block boundaries);
+content is preserved. Verify with the project's tangle + `git diff' gate,
+then refresh metadata with `lp_metadata_refresh.py'. In a poly-org buffer
+the work runs in the org-mode base buffer."
+  (interactive)
+  (let ((base (or (buffer-base-buffer) (current-buffer)))
+        (pos (point)))
+    (with-current-buffer base
+      (save-excursion
+        (goto-char pos)
+        (let ((n (literate-org--resplit-section)))
+          (message "Resplit into %d units. Verify: tangle + `git diff' content-clean, then refresh metadata."
+                   n))))))
+#+END_SRC
+
+***** Batch resplit across a buffer
+
+Collects candidate headings by a *plain text scan* for the
+=:LITERATE_ORG_BLOCK_KIND: atomic= drawer line — deliberately NOT
+=org-map-entries=, which over a 25k-line poly-org buffer is both slow
+(O(headings) =org-end-of-subtree= calls) and prone to "Invalid search
+bound" when a callback widens mid-iteration. The scan records a marker
+per oversized atomic section, then resplits them *bottom-up* so each
+edit only shifts text below the markers still to process. Sections with
+nothing worth splitting raise =user-error= and are tallied.
+
+#+BEGIN_SRC elisp
+(defun literate-org-resplit-buffer ()
+  "Resplit every :tangle-bearing atomic block in the current buffer whose
+body exceeds `literate-org-resplit-threshold' lines. Runs in the org-mode
+base buffer; collects via text scan to stay fast on big poly-org buffers."
+  (interactive)
+  (with-current-buffer (or (buffer-base-buffer) (current-buffer))
+   (save-excursion
+    (save-restriction
+     (widen)
+     (let ((positions nil) (done 0) (skipped nil))
+       (goto-char (point-min))
+       (while (re-search-forward "^:LITERATE_ORG_BLOCK_KIND: atomic[ \t]*$" nil t)
+         (save-excursion
+           (org-back-to-heading t)
+           (awhen (literate-org--section-src-line-count)
+             (when (> it literate-org-resplit-threshold)
+               (push (copy-marker (point)) positions)))))
+       (dolist (m (sort positions (lambda (a b) (> (marker-position a) (marker-position b)))))
+         (goto-char m)
+         (condition-case err
+             (progn (literate-org--resplit-section) (cl-incf done))
+           (user-error (push (org-get-heading t t t t) skipped))))
+       (message "literate-org-resplit-buffer: split %d sections; %d skipped (%s)"
+                done (length skipped) skipped))))))
+#+END_SRC
+
+***** Tests — every language round-trips through noweb
+
+Each test builds a class with two over-floor methods plus small members,
+runs =--file-units= + =--emit-units= into a temp Org buffer, tangles it,
+and asserts the tangled output equals the original *content* (non-blank
+lines) — proving the noweb skeleton + leaves + Org-Babel's auto-indent
+reconstruct the source for Python, Rust, and TypeScript alike.
+
+#+BEGIN_SRC elisp
+(defun literate-org--roundtrip-content-eq (lang src)
+  "Resplit SRC for LANG and tangle it; return non-nil when the tangled
+output matches SRC's non-blank content."
+  (let* ((path (make-temp-file "lo-rt" nil
+                               (concat "." (literate-org-file-extension lang))))
+         (units (literate-org--file-units src lang 1))
+         (orgf (make-temp-file "lo-rt" nil ".org")))
+    (with-temp-buffer
+      (insert "#+PROPERTY: header-args :tangle no\n* f\n:PROPERTIES:\n:header-args: :tangle "
+              path "\n:END:\nprose.\n")
+      (literate-org--emit-units units lang path 1)
+      (write-region (point-min) (point-max) orgf))
+    (delete-file path)
+    (let ((org-confirm-babel-evaluate nil)) (org-babel-tangle-file orgf))
+    (cl-flet ((nb (s) (seq-remove #'string-empty-p
+                                  (mapcar #'string-trim (split-string s "\n")))))
+      (equal (nb src)
+             (nb (with-temp-buffer (insert-file-contents path) (buffer-string)))))))
+
+(ert-deftest literate-org-resplit-python-noweb ()
+  (let ((m (lambda (n) (concat "    def " n "(self):\n"
+                               (mapconcat (lambda (i) (format "        s%d = %d" i i))
+                                          (number-sequence 1 12) "\n")
+                               "\n        return s1\n"))))
+    (should (literate-org--roundtrip-content-eq
+             'python
+             (concat "class Foo(Base):\n    \"\"\"doc.\"\"\"\n    X = 1\n"
+                     "    def small(self):\n        return 1\n"
+                     (funcall m "big1") (funcall m "big2"))))))
+
+(ert-deftest literate-org-resplit-rust-noweb ()
+  (let ((m (lambda (n) (concat "    fn " n "(&self) -> i32 {\n"
+                               (mapconcat (lambda (i) (format "        let s%d = %d;" i i))
+                                          (number-sequence 1 12) "\n")
+                               "\n        s1\n    }\n"))))
+    (should (literate-org--roundtrip-content-eq
+             'rust
+             (concat "impl Foo {\n    fn small(&self) -> i32 { 0 }\n"
+                     (funcall m "big1") (funcall m "big2") "}\n")))))
+
+(ert-deftest literate-org-resplit-typescript-noweb ()
+  (let ((m (lambda (n) (concat "  " n "(): number {\n"
+                               (mapconcat (lambda (i) (format "    const s%d = %d;" i i))
+                                          (number-sequence 1 12) "\n")
+                               "\n    return s1;\n  }\n"))))
+    (should (literate-org--roundtrip-content-eq
+             'typescript
+             (concat "class Foo extends Base {\n  x = 1;\n  small(): number { return 1; }\n"
+                     (funcall m "big1") (funcall m "big2") "}\n")))))
+
+;; Regression: a skeleton CUSTOM_ID equal to its :noweb-ref made Org
+;; resolve <<Foo-body>> against the CUSTOM_ID target and expand it to
+;; the whole subtree. The anchor must derive from the class name, not
+;; the ref. Before the fix CUSTOM_ID was "foo-body" == ref "Foo-body".
+(ert-deftest literate-org-resplit-anchor-distinct-from-ref ()
+  (let* ((m (lambda (n) (concat "    def " n "(self):\n"
+                                (mapconcat (lambda (i) (format "        s%d = %d" i i))
+                                           (number-sequence 1 12) "\n")
+                                "\n        return s1\n")))
+         (src (concat "class Foo(Base):\n    X = 1\n" (funcall m "big1") (funcall m "big2")))
+         (units (literate-org--file-units src 'python 1))
+         (org (with-temp-buffer
+                (literate-org--emit-units units 'python "/tmp/x.py" 1)
+                (buffer-string))))
+    (should (string-match ":noweb-ref \\([^ \"\n]+\\)" org))
+    (let ((ref (match-string 1 org)))
+      (should (string-match ":CUSTOM_ID: \\([^ \n]+\\)" org))
+      (should-not (string= (downcase (match-string 1 org)) (downcase ref))))))
+
+;; Regression: two adjacent over-floor methods (nothing between them)
+;; must not emit an empty "members" leaf — the blank slice is filtered.
+(ert-deftest literate-org-resplit-no-empty-leaf ()
+  (let* ((m (lambda (n) (concat "    def " n "(self):\n"
+                                (mapconcat (lambda (i) (format "        s%d = %d" i i))
+                                           (number-sequence 1 12) "\n")
+                                "\n        return s1\n")))
+         (src (concat "class Foo:\n" (funcall m "big1") (funcall m "big2")))
+         (units (literate-org--file-units src 'python 1))
+         (org (with-temp-buffer
+                (literate-org--emit-units units 'python "/tmp/x.py" 1)
+                (buffer-string))))
+    (should-not (string-match "#\\+BEGIN_SRC[^\n]*\n[ \t\n]*#\\+END_SRC" org))))
+
+;; Regression: `literate-org-resplit-buffer' collected via org-map-entries,
+;; which is slow and raises "Invalid search bound" on big poly-org buffers.
+;; The text-scan rewrite must split the over-threshold section and leave the
+;; small one atomic.
+(ert-deftest literate-org-resplit-buffer-splits-big-only ()
+  (let ((m (lambda (n) (concat "def " n "():\n"
+                               (mapconcat (lambda (i) (format "    s%d = %d" i i))
+                                          (number-sequence 1 130) "\n") "\n")))
+        (literate-org-resplit-threshold 120))
+    (with-temp-buffer
+      (delay-mode-hooks (org-mode))
+      (insert "#+PROPERTY: header-args :tangle no\n")
+      (insert "* big\n:PROPERTIES:\n:LITERATE_ORG_BLOCK_KIND: atomic\n:header-args: :tangle /tmp/b.py\n:END:\nprose.\n")
+      (insert "#+begin_src python\n" (funcall m "f1") (funcall m "f2") "#+end_src\n")
+      (insert "* small\n:PROPERTIES:\n:LITERATE_ORG_BLOCK_KIND: atomic\n:header-args: :tangle /tmp/s.py\n:END:\nprose.\n")
+      (insert "#+begin_src python\ndef g():\n    return 1\n#+end_src\n")
+      (literate-org-resplit-buffer)
+      (let ((s (buffer-string)))
+        (should (string-match "^\\*\\* " s))
+        (should (string-match "\\* small\n:PROPERTIES:\n:LITERATE_ORG_BLOCK_KIND: atomic" s))))))
 #+END_SRC
 **** Python
 ***** module comment for a language

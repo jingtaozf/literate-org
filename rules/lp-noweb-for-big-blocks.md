@@ -14,6 +14,51 @@ Adapted from <scout-server>'s `lp-noweb-for-big-blocks.md`. The
 only meta-repo difference: the `:tangle` path on the skeleton block
 is `../../repos/<sub>/<...>/<file>.py` instead of `../<pkg>/<file>.py`.
 
+## First decide: flat split or noweb?
+
+A monolithic block has two shapes, and they take two different fixes.
+Diagnose before reaching for noweb:
+
+| Block shape | Fix | Mechanism |
+|-------------|-----|-----------|
+| Many **top-level** defs/functions in one block (a whole `.py` dumped atomically) | Flat per-definition split — one sub-heading per def over the noise floor; smaller defs grouped | `M-x literate-org-resplit-block-at-point` |
+| One **big class** (or impl/class body) with **≥2 methods over the floor** | Noweb — skeleton + `<<chunk>>` + per-method leaves | **the same command, automatically** (`literate-org-split-node`) |
+
+Both shapes are now handled by the **one** command. `literate-org--file-units`
+tiles the file body: each top-level definition over
+`literate-org-noweb-min-chunk-lines` (default 10) becomes its own
+section, smaller ones group into "members" sections, and a big class
+that `literate-org-split-node` accepts (≥2 methods over the floor) is
+emitted as a noweb skeleton + per-method leaves — with Org-Babel's
+auto-indent of `<<chunk>>` doing the re-indentation. Adding a language
+is one `literate-org-split-node` `cl-defmethod` (Python `class_definition`,
+Rust `impl_item`, TypeScript `class_declaration` ship today). The
+structure decides *whether* to noweb; the floor only decides *what is
+too small to isolate* — there is no per-file line constant.
+
+Gotcha the tests pin down: a skeleton's `:CUSTOM_ID:` must NOT equal its
+`:noweb-ref` — Org resolves `<<Foo-body>>` against CUSTOM_ID/NAME targets
+case-insensitively, so a CUSTOM_ID `foo-body` hijacks the reference and
+expands it to the whole subtree. The emitter derives the anchor from the
+class name (`foo`), never the ref.
+
+Why this distinction matters: a module onboarded as one atomic block
+per file (the fast path, e.g. `lp/mega-cli/`) needs both — flat split
+for its top-level functions, noweb for its big classes —
+and `literate-org-resplit-buffer` batch-applies both without clobbering
+prose.
+
+Whitespace caveat: Org-Babel trims each block's leading/trailing blank
+lines at tangle, so splitting one atomic block into N collapses the
+blank lines between top-level definitions. The tangled file stays
+identical in *content* — the diff is blank-line spacing only. A
+formatter wired into the tangle path that reproduces the project's
+style restores the spacing; a project without one (e.g. mega-cli,
+whose `make tangle` post-format runs `ruff format src/` and misses the
+uv-workspace `packages/*/src/`) keeps the tighter spacing. Decide
+per project whether that whitespace diff is acceptable. After
+resplitting, refresh `:CONTAINS_DEFS:` via `lp_metadata_refresh.py`.
+
 ## Required setup at file scope
 
 `#+PROPERTY: header-args :results silent :session :noweb yes :tangle no`
