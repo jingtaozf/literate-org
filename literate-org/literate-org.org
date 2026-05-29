@@ -2980,14 +2980,21 @@ NAME names the chunk."
             :envelope (concat sig "{\n" (make-string indent ?\s) "<<" name "-body>>\n}")
             :istart (car bb) :iend (cdr bb) :big big))))
 
-(cl-defmethod literate-org-split-node ((_l (eql python)) (_t (eql class_definition)) node)
+;; Python class_definition and function_definition share a block-based
+;; body and split the same way — on the block's nested (function |
+;; decorated)_definition members. So a big function with >=2 big nested
+;; helpers noweb-splits exactly like a class with >=2 big methods.
+(defun literate-org--python-block-split (node)
+  "Split a python class_definition / function_definition by the nested
+definitions in its block, or nil if fewer than two are over the floor."
   (let ((block (literate-org--child-of-type node 'block)))
     (when block
       (let* ((indent (literate-org--column-at (tsc-node-start-position block)))
              (members (literate-org--members-of-types
                        block '(function_definition decorated_definition)))
              (big (literate-org--big-members members))
-             (name (tsc-node-text (tsc-get-child-by-field node :name)))
+             (name (let ((nm (tsc-get-child-by-field node :name)))
+                     (if nm (tsc-node-text nm) "block")))
              (sig (buffer-substring-no-properties (tsc-node-start-position node)
                                                   (tsc-node-start-position block))))
         (when (>= (length big) 2)
@@ -2995,6 +3002,12 @@ NAME names the chunk."
                 :envelope (concat sig "<<" name "-body>>")
                 :istart (tsc-node-start-position block)
                 :iend (tsc-node-end-position block) :big big))))))
+
+(cl-defmethod literate-org-split-node ((_l (eql python)) (_t (eql class_definition)) node)
+  (literate-org--python-block-split node))
+
+(cl-defmethod literate-org-split-node ((_l (eql python)) (_t (eql function_definition)) node)
+  (literate-org--python-block-split node))
 
 (cl-defmethod literate-org-split-node ((_l (eql rust)) (_t (eql impl_item)) node)
   (awhen (literate-org--child-of-type node 'declaration_list)
@@ -3004,12 +3017,28 @@ NAME names the chunk."
        (if ty (tsc-node-text ty) "Impl"))
      4)))
 
+(cl-defmethod literate-org-split-node ((_l (eql rust)) (_t (eql function_item)) node)
+  (awhen (literate-org--child-of-type node 'block)
+    (literate-org--split-braced
+     node it '(function_item)
+     (let ((nm (tsc-get-child-by-field node :name)))
+       (if nm (tsc-node-text nm) "fn"))
+     4)))
+
 (cl-defmethod literate-org-split-node ((_l (eql typescript)) (_t (eql class_declaration)) node)
   (awhen (literate-org--child-of-type node 'class_body)
     (literate-org--split-braced
      node it '(method_definition public_field_definition)
      (let ((ty (literate-org--child-of-type node 'type_identifier)))
        (if ty (tsc-node-text ty) "Class"))
+     2)))
+
+(cl-defmethod literate-org-split-node ((_l (eql typescript)) (_t (eql function_declaration)) node)
+  (awhen (literate-org--child-of-type node 'statement_block)
+    (literate-org--split-braced
+     node it '(function_declaration)
+     (let ((nm (tsc-get-child-by-field node :name)))
+       (if nm (tsc-node-text nm) "fn"))
      2)))
 #+END_SRC
 
@@ -3392,6 +3421,39 @@ output matches SRC's non-blank content."
       (let ((s (buffer-string)))
         (should (string-match "^\\*\\* " s))
         (should (string-match "\\* small\n:PROPERTIES:\n:LITERATE_ORG_BLOCK_KIND: atomic" s))))))
+
+;; Function-subroutine split: a big function with >=2 over-floor nested
+;; functions noweb-splits the same way a class with >=2 methods does.
+;; Round-trips through tangle for Python, Rust, and TypeScript.
+(ert-deftest literate-org-resplit-python-fn-subroutines ()
+  (let ((m (lambda (n) (concat "    def " n "():\n"
+                               (mapconcat (lambda (i) (format "        s%d = %d" i i))
+                                          (number-sequence 1 12) "\n")
+                               "\n        return s1\n"))))
+    (should (literate-org--roundtrip-content-eq
+             'python
+             (concat "def outer(x):\n    pre = x\n" (funcall m "a") (funcall m "b")
+                     "    return a() + b()\n")))))
+
+(ert-deftest literate-org-resplit-rust-fn-subroutines ()
+  (let ((m (lambda (n) (concat "    fn " n "() -> i32 {\n"
+                               (mapconcat (lambda (i) (format "        let s%d = %d;" i i))
+                                          (number-sequence 1 12) "\n")
+                               "\n        s1\n    }\n"))))
+    (should (literate-org--roundtrip-content-eq
+             'rust
+             (concat "fn outer() -> i32 {\n    let pre = 0;\n" (funcall m "a") (funcall m "b")
+                     "    a() + b()\n}\n")))))
+
+(ert-deftest literate-org-resplit-typescript-fn-subroutines ()
+  (let ((m (lambda (n) (concat "  function " n "(): number {\n"
+                               (mapconcat (lambda (i) (format "    const s%d = %d;" i i))
+                                          (number-sequence 1 12) "\n")
+                               "\n    return s1;\n  }\n"))))
+    (should (literate-org--roundtrip-content-eq
+             'typescript
+             (concat "function outer(): number {\n  const pre = 0;\n" (funcall m "a") (funcall m "b")
+                     "  return a() + b();\n}\n")))))
 #+END_SRC
 **** Python
 ***** module comment for a language
