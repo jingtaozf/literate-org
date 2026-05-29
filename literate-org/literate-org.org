@@ -3454,6 +3454,56 @@ output matches SRC's non-blank content."
              'typescript
              (concat "function outer(): number {\n  const pre = 0;\n" (funcall m "a") (funcall m "b")
                      "  return a() + b();\n}\n")))))
+
+;; Regression for the api-calls-filter-popover.tsx corruption: an early
+;; resplit run (live poly-org buffer, before the base-buffer +
+;; inhibit-modification-hooks fixes) emitted a leaf heading at the file
+;; section's OWN depth instead of one deeper — the orphaned block then
+;; lost :tangle inheritance and its function vanished from tangle — plus
+;; a stray duplicate #+END_SRC. This drives the REAL command path
+;; (`--resplit-section') on a depth-4 tsx section whose body is a small
+;; leading segment + one big top-level function, and asserts: children
+;; land at depth-5 (no new depth-4 heading), a following sibling section
+;; is untouched, no empty/stray block is produced, and the section
+;; round-trips through tangle.
+(ert-deftest literate-org-resplit-deep-level-toplevel-fn ()
+  (let* ((fn (concat "export function Big(): number {\n"
+                     (mapconcat (lambda (i) (format "  const s%d = %d;" i i))
+                                (number-sequence 1 20) "\n")
+                     "\n  return s1;\n}\n"))
+         (body (concat "\"use client\";\n\nimport { X } from \"y\";\n\n"
+                       "interface P { a: number; }\n\nconst T = [\"a\"];\n\n" fn))
+         (tgt (make-temp-file "lo-pop" nil ".tsx"))
+         (orgf (make-temp-file "lo-pop" nil ".org")))
+    (with-temp-buffer
+      (delay-mode-hooks (org-mode))
+      (insert "#+PROPERTY: header-args :tangle no\n")
+      (insert "* a\n** b\n*** c\n**** =popover.tsx=\n:PROPERTIES:\n"
+              ":LITERATE_ORG_BLOCK_KIND: atomic\n:header-args: :tangle " tgt "\n:END:\nprose.\n")
+      (insert "#+begin_src tsx\n" body "#+end_src\n")
+      (insert "**** sibling\n:PROPERTIES:\n:header-args: :tangle /tmp/lo-sib.tsx\n:END:\nprose.\n")
+      (insert "#+begin_src tsx\nexport const Z = 1;\n#+end_src\n")
+      (goto-char (point-min))
+      (re-search-forward "^\\*\\*\\*\\* =popover.tsx=")
+      (literate-org--resplit-section)
+      (let ((s (buffer-string)))
+        ;; the following sibling file section must survive intact
+        (should (string-match "^\\*\\*\\*\\* sibling$" s))
+        ;; resplit must NOT introduce a new depth-4 heading — only the
+        ;; two file sections (popover, sibling) stay at depth 4
+        (should (= 2 (cl-count-if (lambda (l) (string-match-p "^\\*\\*\\*\\* [^*]" l))
+                                  (split-string s "\n"))))
+        ;; every emitted child sits one level deeper (depth 5)
+        (should (string-match "^\\*\\*\\*\\*\\* " s))
+        ;; no empty / stray src block
+        (should-not (string-match "#\\+BEGIN_SRC[^\n]*\n[ \t\n]*#\\+END_SRC" s)))
+      (write-region (point-min) (point-max) orgf))
+    (delete-file tgt)
+    (let ((org-confirm-babel-evaluate nil)) (org-babel-tangle-file orgf))
+    (cl-flet ((nb (x) (seq-remove #'string-empty-p
+                                  (mapcar #'string-trim (split-string x "\n")))))
+      (should (equal (nb body)
+                     (nb (with-temp-buffer (insert-file-contents tgt) (buffer-string))))))))
 #+END_SRC
 **** Python
 ***** module comment for a language
