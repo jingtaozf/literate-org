@@ -3908,6 +3908,296 @@ must NOT swallow them — they should slide forward to the next item."
                (cl-incf idx)))))))))
 #+END_SRC
 
+**** Terraform
+
+Terraform configuration is HCL, and HCL's tree-sitter grammar differs
+from Python / Rust / TypeScript in three ways that drive the design:
+
+1. *Constructs nest one level deeper.* The parse tree is
+   =config_file= → =body= → list of =block=, not =source_file= → list
+   of items.
+2. *Every top-level construct is the same node type — =block=.* A
+   =resource=, =variable=, =output=, =module=, =data=, =locals=,
+   =terraform=, =provider= are all =block= nodes; they differ only by
+   their first =identifier= child and their =string_lit= labels. So
+   there is no per-node-type dispatch table like Rust's — one
+   =node-name= method reads the identifier + labels.
+3. *Comments live at two levels.* A comment BEFORE the first block is
+   a =config_file= child (sibling of =body=); a comment BETWEEN blocks
+   is a =body= child. 18 of mega-code-infra's 34 =.tf= files open with
+   a =#= header, and section dividers (=# ── EKS ──=) sit between
+   blocks — all must round-trip. A naive "iterate =body='s children"
+   loses the leading header.
+
+Because of (3), Terraform overrides =get-code-blocks-in-current-buffer=
+with a *cursor partition* rather than reusing the shared
+node-by-node scanner: it slices the buffer at =block= boundaries so
+every byte (leading header, between-block dividers, trailing comments,
+blank lines) lands in exactly one section's body. That is the
+byte-equivalence guarantee the shared scanner cannot give here.
+
+HCL has no module/import system, so (like Rust) Terraform support is
+pure import + tangle round-trip — the Python literate-server / loader
+machinery is untouched.
+
+***** file extension, parser language, babel name
+
+Extension =.tf=. The tree-sitter grammar is =hcl= (covers Terraform),
+so =treesit-parser-language= maps =terraform → hcl=. The babel block
+language stays =terraform= (cosmetic + font-lock; we tangle, never
+evaluate).
+
+#+BEGIN_SRC elisp
+(cl-defmethod literate-org-file-extension ((_language (eql terraform)))
+  "tf")
+
+(cl-defmethod literate-org-treesit-parser-language ((_language (eql terraform)))
+  'hcl)
+
+(cl-defmethod literate-org-babel-language-name ((_language (eql terraform)))
+  "terraform")
+#+END_SRC
+
+***** node name — identifier + stripped labels
+
+A =block='s heading is =<identifier> <label1>.<label2>= when it has
+two labels (=resource aws_s3_bucket.asm=), =<identifier> <label1>=
+with one (=variable region=), or just =<identifier>= with none
+(=terraform=, =locals=). Labels are =string_lit= nodes whose text
+*includes* the surrounding quotes, so they are stripped.
+
+#+BEGIN_SRC elisp
+(defun literate-org-terraform--block-labels (node)
+  "The =string_lit= label texts of a HCL block NODE, quotes stripped."
+  (cl-loop for i below (tsc-count-children node)
+           for c = (tsc-get-nth-child node i)
+           when (eq 'string_lit (tsc-node-type c))
+           collect (string-trim (tsc-node-text c) "\"" "\"")))
+
+(cl-defmethod literate-org-node-name ((_language (eql terraform))
+                                      (_node-type (eql block)) node)
+  (let* ((id-node (literate-org--child-of-type node 'identifier))
+         (kind (if id-node (tsc-node-text id-node) "block"))
+         (labels (literate-org-terraform--block-labels node)))
+    (pcase labels
+      ('() kind)
+      (`(,one) (format "%s %s" kind one))
+      (`(,a ,b . ,_) (format "%s %s.%s" kind a b)))))
+#+END_SRC
+
+***** get code blocks — cursor partition over block boundaries
+
+Slices the buffer into one section per HCL =block=, with each
+section's body running from the *end of the previous block* (or the
+buffer start, for the first) to the *end of this block*; the last
+section runs to =point-max=. This absorbs every leading header,
+between-block divider, trailing comment, and blank line into exactly
+one section's body — the partition is total, so the tangle round-trip
+loses no content. (Inter-block blank-line spacing may still shift per
+the org-babel padline rule that every language shares; =terraform fmt=
+wired into the tangle path restores it.)
+
+A file with no blocks (comments only, or empty) becomes a single
+section holding the whole buffer. The module comment is the contiguous
+=#= / =//= run at the very top, used only to title the file's section.
+
+#+BEGIN_SRC elisp
+(defun literate-org-terraform--leading-comment (root)
+  "The contiguous run of comment text at the top of the file, from the
+=config_file= ROOT's leading =comment= children, with =#=/=/= markers
+stripped — or nil."
+  (let ((count (tsc-count-children root)) (index 0) (parts nil) (stop nil))
+    (while (and (not stop) (< index count))
+      (let ((child (tsc-get-nth-child root index)))
+        (if (eq 'comment (tsc-node-type child))
+            (progn
+              (push (string-trim-left (tsc-node-text child) "[#/ \t]+") parts)
+              (cl-incf index))
+          (setq stop t))))
+    (when parts (mapconcat #'identity (nreverse parts) "\n"))))
+
+(cl-defmethod literate-org-module-comment ((_language (eql terraform)) node)
+  (literate-org-terraform--leading-comment node))
+
+(cl-defmethod literate-org-get-code-blocks-in-current-buffer
+    ((language (eql terraform)) module-name section-level)
+  (let* ((language (literate-org-alias-language language))
+         (tree (literate-org-parse-tree-for-current-file language))
+         (root (tsc-root-node tree))
+         (body (literate-org--child-of-type root 'body))
+         (module-comment (literate-org-terraform--leading-comment root))
+         (blocks (and body
+                      (cl-loop for i below (tsc-count-children body)
+                               for c = (tsc-get-nth-child body i)
+                               when (eq 'block (tsc-node-type c)) collect c)))
+         (code-blocks nil))
+    (if (null blocks)
+        ;; No blocks (comments only / empty) — one section, whole buffer.
+        (setf code-blocks
+              (list (make-literate-org-code-block
+                     :title (or module-name "config")
+                     :body (buffer-substring-no-properties (point-min) (point-max))
+                     :language language :level section-level)))
+      (let ((last-index (1- (length blocks)))
+            (cursor (point-min)))
+        (cl-loop for blk in blocks
+                 for i from 0
+                 for seg-end = (if (= i last-index)
+                                 (point-max)
+                                 (tsc-node-end-position blk))
+                 do (setf code-blocks
+                          (cons (make-literate-org-code-block
+                                 :title (literate-org-node-name language 'block blk)
+                                 :body (buffer-substring-no-properties cursor seg-end)
+                                 :language language :level section-level)
+                                code-blocks))
+                    (setf cursor seg-end))
+        (setf code-blocks (nreverse code-blocks))))
+    (cons module-comment code-blocks)))
+#+END_SRC
+
+***** noweb split — deferred (follow-up)
+
+A big =resource= / =module= could noweb-split on its nested =block=
+members, but HCL's grammar delimits a block body with =block_start= /
+=block_end= tokens wrapping a =body= node (not the =​{= / =}= child
+tokens =literate-org--split-braced= assumes), so the shared brace
+splitter does not apply directly. Deferred until a real 80+-line
+single-resource pain point appears; without a =terraform= method,
+=literate-org-split-node= returns nil and big blocks stay atomic —
+the correct, safe default for the flat-import use case
+(mega-code-infra).
+
+***** Tests — block titles, byte-complete partition, tangle round-trip
+
+The first three tests are pure parse assertions (titles for every block
+shape; the cursor partition reproduces the source byte-for-byte even
+with a leading header outside =body=; a comment-only file becomes one
+section). The fourth is a real round-trip: import a =.tf= into an Org
+buffer, =org-babel-tangle-file=, and assert the tangled output equals
+the source *content* (non-blank lines — blank-line spacing shifts per
+the shared org-babel padline rule).
+
+The fifth is an optional real-world sweep: when
+=LITERATE_ORG_TF_SAMPLE_DIR= names a directory of production =.tf=
+files, every one must partition byte-complete. It is env-gated (never a
+hardcoded consumer path) so the reusable submodule stays a clean
+boundary object; point it at e.g. a =mega-code-infra= checkout to
+exercise license headers, ═-dividers, many small outputs, empty
+=data ... {}= blocks, and heredocs.
+
+#+BEGIN_SRC elisp
+(defun literate-org-terraform--hcl-available-p ()
+  (and (fboundp 'tree-sitter-require)
+       (ignore-errors (tree-sitter-require 'hcl) t)))
+
+(ert-deftest literate-org-terraform-node-name-shapes ()
+  (skip-unless (literate-org-terraform--hcl-available-p))
+  (with-temp-buffer
+    (insert (concat "terraform {\n  required_version = \">= 1.5\"\n}\n\n"
+                    "variable \"region\" {\n  type = string\n}\n\n"
+                    "resource \"aws_s3_bucket\" \"asm\" {\n  bucket = \"x\"\n}\n\n"
+                    "output \"arn\" {\n  value = 1\n}\n\n"
+                    "locals {\n  name = \"mega\"\n}\n\n"
+                    "module \"vpc\" {\n  source = \"./vpc\"\n}\n\n"
+                    "data \"aws_caller_identity\" \"current\" {}\n"))
+    (let ((titles (mapcar #'literate-org-code-block-title
+                          (cdr (literate-org-get-code-blocks-in-current-buffer
+                                'terraform "infra" 2)))))
+      (should (equal titles
+                     '("terraform" "variable region"
+                       "resource aws_s3_bucket.asm" "output arn"
+                       "locals" "module vpc"
+                       "data aws_caller_identity.current"))))))
+
+(ert-deftest literate-org-terraform-partition-byte-complete ()
+  (skip-unless (literate-org-terraform--hcl-available-p))
+  (with-temp-buffer
+    (insert (concat "# ── EKS ──\n# header line 2\n\n"
+                    "terraform {\n  required_version = \">= 1.5\"\n}\n\n"
+                    "# between divider\n"
+                    "resource \"aws_s3_bucket\" \"asm\" {\n  bucket = \"x\"\n}\n\n"
+                    "output \"arn\" {\n  value = 1\n}\n"))
+    (let* ((src (buffer-string))
+           (info (literate-org-get-code-blocks-in-current-buffer
+                  'terraform "infra.eks" 2)))
+      ;; leading header surfaced as module comment
+      (should (equal (car info) "── EKS ──\nheader line 2"))
+      ;; and no byte is lost
+      (should (string= src (mapconcat #'literate-org-code-block-body
+                                      (cdr info) ""))))))
+
+(ert-deftest literate-org-terraform-comments-only-file ()
+  (skip-unless (literate-org-terraform--hcl-available-p))
+  (with-temp-buffer
+    (insert "# just a note\n# and another\n")
+    (let* ((src (buffer-string))
+           (blocks (cdr (literate-org-get-code-blocks-in-current-buffer
+                         'terraform "infra.notes" 2))))
+      (should (= 1 (length blocks)))
+      (should (string= src (literate-org-code-block-body (car blocks)))))))
+
+(ert-deftest literate-org-terraform-import-tangle-roundtrip ()
+  (skip-unless (literate-org-terraform--hcl-available-p))
+  (let* ((dir (make-temp-file "lo-tf-rt-" t))
+         (src-file (expand-file-name "main.tf" dir))
+         (out-file (expand-file-name "out.tf" dir))
+         (org-file (expand-file-name "infra.org" dir))
+         (source (concat "# infra header\n\n"
+                         "terraform {\n  required_version = \">= 1.5\"\n}\n\n"
+                         "# storage\n"
+                         "resource \"aws_s3_bucket\" \"asm\" {\n"
+                         "  bucket = \"my-asm-bucket\"\n"
+                         "  tags = {\n    Env = \"prod\"\n  }\n}\n\n"
+                         "output \"arn\" {\n  value = aws_s3_bucket.asm.arn\n}\n"))
+         (org-confirm-babel-evaluate nil))
+    (unwind-protect
+        (progn
+          (with-temp-file src-file (insert source))
+          (with-temp-buffer
+            (org-mode)
+            (insert "* Infra\n")
+            (goto-char (point-max))
+            (literate-org-import-source-file-to-org 'terraform src-file 1 "infra.main")
+            (goto-char (point-min))
+            (while (re-search-forward (regexp-quote src-file) nil t)
+              (replace-match out-file t t))
+            (write-region (point-min) (point-max) org-file))
+          (org-babel-tangle-file org-file)
+          (should (file-exists-p out-file))
+          (cl-flet ((nb (s) (seq-remove #'string-empty-p
+                                        (mapcar #'string-trim
+                                                (split-string (string-trim-right s) "\n")))))
+            (should (equal (nb source)
+                           (nb (with-temp-buffer
+                                 (insert-file-contents out-file)
+                                 (buffer-string)))))))
+      (delete-directory dir t))))
+
+(ert-deftest literate-org-terraform-real-dir-sweep ()
+  (skip-unless (literate-org-terraform--hcl-available-p))
+  (let ((sample (getenv "LITERATE_ORG_TF_SAMPLE_DIR")))
+    (skip-unless (and sample (file-directory-p sample)))
+    (let ((failures nil) (checked 0))
+      (dolist (f (directory-files sample t "\\.tf\\'"))
+        (with-temp-buffer
+          (insert-file-contents f)
+          (let* ((src (buffer-string))
+                 (info (ignore-errors
+                         (literate-org-get-code-blocks-in-current-buffer
+                          'terraform (file-name-base f) 2)))
+                 (cat (and info (mapconcat #'literate-org-code-block-body
+                                           (cdr info) ""))))
+            (cl-incf checked)
+            (unless (and cat (string= src cat))
+              (push (file-name-nondirectory f) failures)))))
+      (when failures
+        (ert-fail (format "%d/%d .tf lost bytes: %s"
+                          (length failures) checked
+                          (mapconcat #'identity (nreverse failures) ", "))))
+      (message "terraform sweep: %d/%d byte-complete" checked checked))))
+#+END_SRC
+
 **** vue
 ***** How to get the name of a parse node
 

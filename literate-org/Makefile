@@ -43,3 +43,23 @@ dev:
 
 server:
 	env PYTHONPATH=$(PWD) poetry run python -m literate_python 
+
+# ── Terraform/HCL E2E tests (added with terraform language support) ──
+EMACS ?= emacs
+
+# Optional real-world sweep: point at a production .tf tree to assert
+# every file partitions byte-complete. Unset → that one test skips.
+#   make test-terraform LITERATE_ORG_TF_SAMPLE_DIR=/path/to/mega-code-infra
+export LITERATE_ORG_TF_SAMPLE_DIR
+
+.PHONY: test test-terraform
+
+## Run the Terraform/HCL ert tests embedded in literate-org.org.
+test-terraform:
+	$(EMACS) -Q --batch -L . -l tests/run-tests.el \
+		-f ert-run-tests-batch-and-exit literate-org-terraform
+
+## Run every embedded ert test.
+test:
+	$(EMACS) -Q --batch -L . -l tests/run-tests.el \
+		-f ert-run-tests-batch-and-exit
