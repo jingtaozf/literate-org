@@ -4265,7 +4265,11 @@ interface / variable_declarator) plus three constants (string,
 comment, import) fold into two =defconst=s; the three per-shape
 methods (=export_statement= recurses into =:declaration= or =:value=,
 =lexical_declaration= prepends =:kind=, =expression_statement=
-unwraps) keep their own specialised dispatch.
+unwraps) keep their own specialised dispatch.  =typescript= reuses all
+of this verbatim: one =typescript= node-name method delegates to the
+=tsx= dispatch, since the two grammars share these node shapes — only
+=split-node= is registered per language, so without the delegation a
+=typescript= block's titles fell through to the bare node-type.
 
 #+BEGIN_SRC elisp
 (defconst literate-org-tsx--name-labels
@@ -4318,6 +4322,14 @@ unwraps) keep their own specialised dispatch.
                                       (_node-type (eql expression_statement)) node)
   (let ((new-node (tsc-get-nth-child node 0)))
     (literate-org-node-name language (ts-node-type new-node) new-node)))
+
+;; typescript shares tsx's node shapes (function_declaration,
+;; lexical_declaration, export_statement, etc.) and registers split-node
+;; under `typescript', but had no typescript node-name method — so resplit
+;; titles fell through to the bare node-type. Delegate every typescript
+;; node-name to the tsx dispatch; the grammars share the same node fields.
+(cl-defmethod literate-org-node-name ((_language (eql typescript)) node-type node)
+  (literate-org-node-name 'tsx node-type node))
 #+END_SRC
 
 ***** get the next code block index
