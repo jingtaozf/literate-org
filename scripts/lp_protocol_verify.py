@@ -222,6 +222,21 @@ def v3_noweb(files: list[Path]) -> list[dict]:
 # V4: Tangle paths exist
 # ──────────────────────────────────────────────────────────────────
 
+def _resolve_tangle_target(org_file: Path, tangle_path: str) -> Path:
+    """Resolve a :tangle path to an absolute filesystem target.
+
+    A leading ``~`` is expanded to the user's home and absolute paths
+    are taken as-is; everything else resolves relative to the .org
+    file's directory.  Without ~-expansion an out-of-repo target like
+    ``~/.pi/agent/extensions/x.ts`` would be mis-joined as
+    ``<orgdir>/~/.pi/...`` and falsely flagged dangling by V4/V5.
+    """
+    p = Path(tangle_path).expanduser()
+    if p.is_absolute():
+        return p.resolve()
+    return (org_file.parent / p).resolve()
+
+
 def v4_tangle_paths(files: list[Path]) -> list[dict]:
     parser = OrgFileParser()
     violations: list[dict] = []
@@ -235,7 +250,7 @@ def v4_tangle_paths(files: list[Path]) -> list[dict]:
             # unresolvable. Skip V4 for these.
             if "<" in block.tangle_path or ">" in block.tangle_path:
                 continue
-            target = (f.parent / block.tangle_path).resolve()
+            target = _resolve_tangle_target(f, block.tangle_path)
             # Allow target to not yet exist (file to be created), but
             # parent dir must exist; otherwise tangle would fail.
             if not target.exists() and not target.parent.exists():
@@ -263,7 +278,7 @@ def v5_source_parseable(files: list[Path]) -> list[dict]:
         for block in org.blocks:
             if not block.tangle_path or block.tangle_path == "no":
                 continue
-            target = (f.parent / block.tangle_path).resolve()
+            target = _resolve_tangle_target(f, block.tangle_path)
             if target in seen or not target.is_file():
                 continue
             seen.add(target)
