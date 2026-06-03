@@ -372,7 +372,15 @@ def is_in_block_scope(
     rel = resolve_tangled_path(file_path, project_root=project_root)
     if rel is None:
         return False
-    return _under_tangled_root(rel, tangled_roots=tangled_roots)
+    # Block if the path is under a configured TANGLED_ROOT (the "force
+    # prose-first for everything in repos/" net) OR if it is a KNOWN tangle
+    # target in the reverse-map. The second clause is precise: it protects any
+    # :tangle output an .org owns even outside TANGLED_ROOTS (e.g.
+    # lp/experiments/*.org tangling into eval/) without over-blocking sibling
+    # non-LP files that no .org owns (a stray test, a vendored standalone, a
+    # .venv). Keep the map fresh with `make build-tangle-map`; the owning-org
+    # lookup self-heals on miss.
+    return _under_tangled_root(rel, tangled_roots=tangled_roots) or rel in load_map()
 
 
 def is_in_block_scope_anywhere(file_path: str) -> tuple[bool, Path | None, dict[str, str]]:
