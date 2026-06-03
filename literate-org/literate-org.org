@@ -2752,11 +2752,34 @@ function:
 #+END_SRC
 
 **** build org sections for a file
+
+This emits one atomic =#+begin_src= block per top-level definition. When
+=literate-org-import-noweb-split= is non-nil (the default) it also stamps
+=:LITERATE_ORG_BLOCK_KIND: atomic= on each block and, once the file's
+section is built, runs =literate-org--resplit-region= over the freshly
+imported subtree — the same engine =literate-org-resplit-buffer= uses — so
+an oversized class auto-noweb-splits on import exactly as a manual
+=literate-org-resplit-block-at-point= would. Blocks at or below
+=literate-org-resplit-threshold= lines stay atomic, so small files import
+as before (aside from the property drawer). Set the flag nil to restore
+the pre-split output: no drawer, no resplit.
+
+#+BEGIN_SRC elisp
+(defcustom literate-org-import-noweb-split t
+  "When non-nil, `literate-org-import' stamps each imported block with
+`:LITERATE_ORG_BLOCK_KIND: atomic' and resplits oversized ones — a big
+class becomes a noweb skeleton plus per-method leaves — over the
+just-imported subtree. nil restores the pre-split import output."
+  :type 'boolean
+  :group 'literate-org)
+#+END_SRC
+
 #+BEGIN_SRC elisp
 (cl-defun literate-org-import-source-file-to-org
     (language file level module-name &key (with-org-section t))
   (message "literate importing module %s from file %s with language %s" module-name file language)
   (let* ((new-level (1+ level))
+         (import-start (point-marker))
          (code-blocks-info
            (with-temp-buffer ;; To avoid running any hooks in original file, which may cause side effects.
              (insert-file-contents file)
@@ -2786,7 +2809,17 @@ function:
                        (literate-org-babel-language-name (literate-org-code-block-language block))
                        "\n")
                (insert it)
-               (insert "\n#+END_SRC\n")))))
+               (insert "\n#+END_SRC\n")
+               (when literate-org-import-noweb-split
+                 (save-excursion
+                   (org-back-to-heading t)
+                   (org-entry-put (point) "LITERATE_ORG_BLOCK_KIND" "atomic")))))
+    ;; Auto-split oversized atomic blocks (a big class -> noweb skeleton +
+    ;; per-method leaves) over the just-imported subtree, reusing the same
+    ;; engine as `literate-org-resplit-buffer'.
+    (when literate-org-import-noweb-split
+      (literate-org--resplit-region import-start (point)))
+    (set-marker import-start nil)))
 #+END_SRC
 **** Resplit an oversized atomic block in place
 
@@ -3271,7 +3304,7 @@ the work runs in the org-mode base buffer."
                    n))))))
 #+END_SRC
 
-***** Batch resplit across a buffer
+***** Batch resplit across a region
 
 Collects candidate headings by a *plain text scan* for the
 =:LITERATE_ORG_BLOCK_KIND: atomic= drawer line — deliberately NOT
@@ -3282,6 +3315,45 @@ per oversized atomic section, then resplits them *bottom-up* so each
 edit only shifts text below the markers still to process. Sections with
 nothing worth splitting raise =user-error= and are tallied.
 
+Parameterising the scan over =[BEG, END]= is what lets one core serve two
+scopes: =literate-org-resplit-buffer= hands it the whole buffer, while a
+fresh =literate-org-import= hands it only the subtree it just emitted — so
+import splits its own oversized classes without disturbing sections it did
+not write. Returns =(DONE . SKIPPED-HEADINGS)=.
+
+#+BEGIN_SRC elisp
+(defun literate-org--resplit-region (beg end)
+  "Resplit every :tangle-bearing atomic block between BEG and END whose
+body exceeds `literate-org-resplit-threshold' lines. Locates candidates by
+a text scan for the `:LITERATE_ORG_BLOCK_KIND: atomic' drawer line, then
+resplits them bottom-up so each edit only shifts text below the markers
+still to process. Returns (DONE . SKIPPED-HEADINGS).
+
+Wrapped in `save-restriction' because `literate-org--resplit-section'
+widens unconditionally; without it a caller inside a narrowed poly-org
+chunk (e.g. import run from a poly-org base) would silently lose its
+narrowing."
+  (let ((positions nil) (done 0) (skipped nil))
+    (save-restriction
+      (save-excursion
+        (goto-char beg)
+        (while (re-search-forward "^:LITERATE_ORG_BLOCK_KIND: atomic[ \t]*$" end t)
+          (save-excursion
+            (org-back-to-heading t)
+            (awhen (literate-org--section-src-line-count)
+              (when (> it literate-org-resplit-threshold)
+                (push (copy-marker (point)) positions)))))
+        (dolist (m (sort positions (lambda (a b) (> (marker-position a) (marker-position b)))))
+          (goto-char m)
+          (condition-case _
+              (progn (literate-org--resplit-section) (cl-incf done))
+            (user-error (push (org-get-heading t t t t) skipped))))))
+    (cons done skipped)))
+#+END_SRC
+
+=literate-org-resplit-buffer= widens and runs the region core over the
+whole buffer.
+
 #+BEGIN_SRC elisp
 (defun literate-org-resplit-buffer ()
   "Resplit every :tangle-bearing atomic block in the current buffer whose
@@ -3289,24 +3361,12 @@ body exceeds `literate-org-resplit-threshold' lines. Runs in the org-mode
 base buffer; collects via text scan to stay fast on big poly-org buffers."
   (interactive)
   (with-current-buffer (or (buffer-base-buffer) (current-buffer))
-   (save-excursion
-    (save-restriction
-     (widen)
-     (let ((positions nil) (done 0) (skipped nil))
-       (goto-char (point-min))
-       (while (re-search-forward "^:LITERATE_ORG_BLOCK_KIND: atomic[ \t]*$" nil t)
-         (save-excursion
-           (org-back-to-heading t)
-           (awhen (literate-org--section-src-line-count)
-             (when (> it literate-org-resplit-threshold)
-               (push (copy-marker (point)) positions)))))
-       (dolist (m (sort positions (lambda (a b) (> (marker-position a) (marker-position b)))))
-         (goto-char m)
-         (condition-case err
-             (progn (literate-org--resplit-section) (cl-incf done))
-           (user-error (push (org-get-heading t t t t) skipped))))
-       (message "literate-org-resplit-buffer: split %d sections; %d skipped (%s)"
-                done (length skipped) skipped))))))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (let ((r (literate-org--resplit-region (point-min) (point-max))))
+          (message "literate-org-resplit-buffer: split %d sections; %d skipped (%s)"
+                   (car r) (length (cdr r)) (cdr r)))))))
 #+END_SRC
 
 ***** Tests — every language round-trips through noweb
@@ -3504,6 +3564,48 @@ output matches SRC's non-blank content."
                                   (mapcar #'string-trim (split-string x "\n")))))
       (should (equal (nb body)
                      (nb (with-temp-buffer (insert-file-contents tgt) (buffer-string))))))))
+
+;; Import integration: `literate-org-import-noweb-split' (default t) makes
+;; `literate-org-import-source-file-to-org' auto-resplit oversized blocks
+;; over the just-imported subtree; nil restores the pre-split output.
+(defun literate-org--import-to-string (lang source noweb-split)
+  "Import SOURCE (a LANG source string) under a :tangle-bearing section
+with `literate-org-import-noweb-split' bound to NOWEB-SPLIT, returning the
+resulting Org buffer text. A test scaffold shared by the import cases."
+  (let* ((dir (make-temp-file "lo-imp-" t))
+         (src (expand-file-name (concat "m." (literate-org-file-extension lang)) dir))
+         (literate-org-import-noweb-split noweb-split))
+    (unwind-protect
+        (progn
+          (with-temp-file src (insert source))
+          (with-temp-buffer
+            (org-mode)
+            (insert "* Mod\n:PROPERTIES:\n:header-args: :tangle "
+                    (expand-file-name "out" dir) "\n:END:\n")
+            (goto-char (point-max))
+            (literate-org-import-source-file-to-org lang src 1 "m" :with-org-section nil)
+            (buffer-string)))
+      (delete-directory dir t))))
+
+(ert-deftest literate-org-import-auto-noweb-splits-big-class ()
+  (let* ((m (lambda (n) (concat "    def " n "(self):\n"
+                                (mapconcat (lambda (i) (format "        s%d = %d" i i))
+                                           (number-sequence 1 12) "\n")
+                                "\n        return s1\n")))
+         (literate-org-resplit-threshold 20)
+         (s (literate-org--import-to-string
+             'python (concat "class Big:\n" (funcall m "big1") (funcall m "big2")
+                             "\ndef small():\n    return 1\n")
+             t)))
+    (should (string-match-p ":LITERATE_ORG_BLOCK_KIND: skeleton" s))
+    (should (string-match-p ":LITERATE_ORG_BLOCK_KIND: noweb-leaf" s))
+    (should (string-match-p ":LITERATE_ORG_BLOCK_KIND: atomic" s))))
+
+(ert-deftest literate-org-import-noweb-split-off-no-drawer ()
+  (should-not (string-match-p
+               "LITERATE_ORG_BLOCK_KIND"
+               (literate-org--import-to-string
+                'python "def small():\n    return 1\n" nil))))
 #+END_SRC
 **** Python
 ***** module comment for a language
