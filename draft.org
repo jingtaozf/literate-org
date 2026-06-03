@@ -409,3 +409,217 @@ git subtree push --prefix=literate-org \
 - *Awaiting decision*: A / B / C.
 - If B accepted, migration script lives in
   =scripts/embed-literate-org.sh= (to be written).
+
+
+* 2026-06-03 — la-oversized-block-guard (single-block .py import guard)
+:PROPERTIES:
+:CUSTOM_ID: 2026-06-03-la-oversized-block-guard
+:END:
+
+*Status*: proposal, awaiting decision. Triggering incident:
+=edo-literate/lp/experiments/langsmith.org= — an agent hand-authored a
+206-line =graph.py= as ONE atomic =:tangle= block with inline =:tangle=,
+bypassing =literate-org-import=. Repaired post-hoc by restructuring to the
+=:header-args:= drawer form + =literate-org-resplit-block-at-point=.
+
+Proposal: add a *layered* guard in =literate-agent= against two defects:
+(a) a file over =literate-org-resplit-threshold= (=120) lines pasted as ONE
+atomic =:tangle= block instead of per-def sections; (b) =:tangle= written
+INLINE on the =#+begin_src= line instead of in the section =:header-args:=
+drawer. Defect (b) is doubly bad — non-canonical AND it silently breaks
+=literate-org-resplit-block-at-point= (=No :tangle target=), so the repair
+tool cannot fix (a) until (b) is fixed.
+
+A prose rule is insufficient: both =lp-noweb-for-big-blocks.md= and
+=lp-module-section-hierarchy.md= were already loaded and the agent skipped
+them under generation pressure — the same reasoning that made
+=block-bare-star-in-src.sh= a hook, not a rule.
+
+** Layered stack (mirrors block-bare-star's 3-layer defence)
+:PROPERTIES:
+:CUSTOM_ID: 2026-06-03-la-oversized-block-guard-stack
+:END:
+
+=block-bare-star= is defended by PreToolUse hook (prevent) →
+=check_org_structure.py= via =make check-structure= (commit) → tangle
+round-trip diff (CI). We replicate that altitude split. The two defects are
+*separable* with different false-positive profiles:
+
+- Defect (b) inline-=:tangle= — byte-exact, near-zero FP, breaks the repair
+  tool. Meets the bare-star bar: hard-enforce.
+- Defect (a) oversized atomic block — heuristic (raw text cannot tell "one
+  150-line def" from "ten crammed defs" without tree-sitter). Warn-first.
+
+| # | Mechanism | File | Layer | Default | Adopt |
+|---+-----------+------+-------+---------+-------|
+| 1 (ship first) | inline + oversize lint | =scripts/check_org_structure.py= | commit + CI | inline=error, oversize=warn | ADOPT (S) |
+| 2 | PreToolUse warn/block hook | =hooks/warn-oversized-atomic-src.sh= | edit-time | inline=block, oversize=warn | ADOPT (M) |
+| 3 | =/lp-import= skill+command | =skills/lp-import/SKILL.md= | prevent (tool) | opt-in | ADOPT (M) |
+| — | V7 in =lp_protocol_verify.py= | — | commit | — | DROP (redundant; parser emits 1 block/heading; default --checks would hard-block every consumer) |
+| — | =audit_lp.py= rule + C7 | — | CI sweep | — | DROP (C7 wiring dead — =lp-research-audit.md= calls =check_org_structure.py=, not =audit_lp.py=) |
+| — | inline→drawer autofix | — | tool | — | DEFER (mass-flags the canonical noweb skeleton, which mandates inline =:tangle=) |
+
+Net: two new gates (lint, hook) + one tool, all converging on
+=check_org_structure.py= as the single detection home so thresholds and
+exemptions stay in lockstep.
+
+** Ship first: the commit-tier lint (effort S)
+:PROPERTIES:
+:CUSTOM_ID: 2026-06-03-la-oversized-block-guard-lint
+:END:
+
+Two checks in =check_org_structure.py= plus one mandatory parser fix. This
+is the highest-leverage / lowest-effort layer (~50 LOC, one file).
+
+*** Parser fix (load-bearing, lands first)
+
+=HEADING_RE= matches a column-0 =* = even INSIDE =#+begin_src=, so a big
+block with a docstring bullet gets shredded into phantom sections and the
+block size mismeasured. Track =SRC_BEGIN_RE= / =SRC_END_RE= state in
+=parse()=; a =*=-line while in-src is *content, not a heading*. This also
+closes the blind spot where an inline-=:tangle= section gets
+=tangle_target=None= → =has_real_tangle=False= → silently escapes every
+tangle-aware check including =prose-before-src= (this is partly why the
+incident block was never flagged structurally).
+
+*** Check A — inline-tangle-not-header-args (hard, ~0 FP)
+
+=:tangle <path>= on a =#+begin_src= line whose section drawer lacks
+=:header-args: :tangle=, gated on a code extension. EXEMPT skeleton blocks
+(begin_src line carries =:noweb-ref= / =:noweb yes=). Own knob
+=LITERATE_AGENT_REQUIRE_HEADER_ARGS_TANGLE= (default 1).
+
+*** Check B — oversized-atomic-tangle-block (warn)
+
+Effective tangle (inline OR drawer) is code-ext AND own-block body
+*strictly* > =RESPLIT_THRESHOLD= (matching Emacs =(> it 120)=) AND not noweb
+(standalone =<<chunk>>= line only) AND drawer lacks =:LITERATE_ORG_PIN: yes=
+/ =:LITERATE_ORG_NO_SPLIT: yes=.
+
+*** Coverage gap (must fix or the guard misses the incident class)
+
+=discover_files()= rglobs =lp/**/*.org= ONLY. The incident =.org= tangles to
+=eval/= and would be missed by =make check-structure= entirely. Add
+=LITERATE_AGENT_SCAN_GLOBS=, or have the consumer Makefile pass
+=git ls-files '*.org'=.
+
+** Layer 2 — PreToolUse hook (edit-time, effort M)
+:PROPERTIES:
+:CUSTOM_ID: 2026-06-03-la-oversized-block-guard-hook
+:END:
+
+New =hooks/warn-oversized-atomic-src.sh= — copy =block-bare-star-in-src.sh='s
+skeleton (stdin JSON parse, =.org= guard, =_resolve_proposed_content= to
+reconstruct the AFTER-edit buffer in memory, before/after diff-only). Swap
+the scanner for a section state-machine with nearest-ancestor inheritance of
+*both* =:tangle= and =:noweb-ref=. Defect (b) → block by default; defect (a)
+→ warn. Register as a 3rd hook in the existing =Edit|Write|MultiEdit=
+matcher in =hooks.json=. Catches at the Write keystroke, before bytes hit
+disk — the earliest layer, fires even on a brand-new file.
+
+Knobs (read from =.claude/hooks/_env.sh=): =LITERATE_AGENT_INLINE_TANGLE_MODE=
+(default block), =LITERATE_AGENT_OVERSIZE_BLOCK_MODE= (default warn),
+=LITERATE_AGENT_RESPLIT_THRESHOLD= (default 120).
+
+** Layer 3 — =/lp-import= skill + command (prevent at source, effort M)
+:PROPERTIES:
+:CUSTOM_ID: 2026-06-03-la-oversized-block-guard-import
+:END:
+
+=skills/lp-import/SKILL.md= + =commands/lp-import.md= wrapping
+=literate-org-import= via =emacsclient= (precedent: =hooks/tangle-org-buffer.sh=).
+The tool fans out per-def and emits the drawer =:tangle= form — neither
+defect can arise *if invoked*. Required fixes: (1) compute the LP-relative
+tangle path (the tool writes module-path as-is; an absolute path breaks
+byte-equivalence + =tangle-map.tsv=); (2) set =LITERATE_ORG_LANGUAGE= on the
+heading from the extension before the call (else =emacsclient= blocks on a
+minibuffer prompt → freezes single-threaded Emacs); (3) no-Emacs fallback =
+stop-and-defer (emit a TODO; let the detect gate keep the un-imported file
+out of the clean set), never hand-author. One-line Phase-D edit in
+=skills/lp-resync/SKILL.md= to point at it.
+
+** Boundary-object compliance (default + override per layer)
+:PROPERTIES:
+:CUSTOM_ID: 2026-06-03-la-oversized-block-guard-override
+:END:
+
+| Knob | Default | Source |
+|------+---------+--------|
+| =LITERATE_AGENT_RESPLIT_THRESHOLD= | 120 (== =literate-org-resplit-threshold=) | =_env.sh= |
+| =LITERATE_AGENT_REQUIRE_HEADER_ARGS_TANGLE= | 1 | =_env.sh= |
+| =LITERATE_AGENT_INLINE_TANGLE_MODE= | block | =_env.sh= |
+| =LITERATE_AGENT_OVERSIZE_BLOCK_MODE= | warn | =_env.sh= |
+| =:LITERATE_ORG_PIN: / :LITERATE_ORG_NO_SPLIT:= | absent | per-section drawer |
+| =LITERATE_AGENT_RELAXED_FILES= | "" | =_env.sh= |
+| =/lp-import= adoption | opt-in | consumer @-import wrapper |
+
+No shipped-hook-id default changes (avoids the V7 fatal flaw); all paths via
+=${CLAUDE_PROJECT_DIR}= / env, never hard-coded consumer paths.
+
+** Open risks carried into implementation
+:PROPERTIES:
+:CUSTOM_ID: 2026-06-03-la-oversized-block-guard-risks
+:END:
+
+- The hook + lint must resolve =:noweb-ref= via the SAME ancestor-inheritance
+  the =:tangle= scan uses, else a correctly-split noweb LEAF (inherits parent
+  tangle, no own =:noweb-ref=) false-positives — the shape the doctrine mandates.
+- =/lp-import= must rewrite the emitted tangle path abs→LP-relative and set
+  =LITERATE_ORG_LANGUAGE= before the =emacsclient= call; no-Emacs fallback =
+  stop-and-defer, not hand-author.
+- Ship a checked-in regression fixture: one >120 inline-tangle block (2
+  violations), four ≤76-line blocks (0), one noweb skeleton >120 (0).
+
+** Decision (2026-06-03, reality-corrected + M1 implemented)
+:PROPERTIES:
+:CUSTOM_ID: 2026-06-03-la-oversized-block-guard-decision
+:END:
+
+Measuring the actual LP corpus *overturned* the synthesis's "M2 lint
+ship-first": a blanket lint floods.
+
+- =589= inline-=:tangle= =#+begin_src= lines across 16 files (whole
+  skill-scout-server + experiments + others). Check A as a hard error
+  would flag 589 existing, shipped, working instances → unacceptable.
+- =515= src blocks with body >120 lines across 96 files (skill-encryption
+  rust, mega-code-infra, pcr, py-foundation, …). Check B as a blanket warn
+  = 515-line noise flood, zero discriminating power.
+
+Large blocks *existing* is not the defect (most are legit single
+classes/defs/terraform-resources, or the known fast-path onboarding
+backlog). The defect is an agent *newly* hand-authoring one. Only a
+*before/after diff* discriminates new from existing — so the PreToolUse
+hook, not a blanket lint, is the load-bearing instrument.
+
+Also corrected: the synthesis's "=discover_files()= misses =eval/=" was a
+*misdiagnosis* — the incident =.org= is =lp/experiments/langsmith.org=
+(under =lp/=, always scanned). The real gap was a missing *check*, not a
+missing *file* (=prose-before-src= passed because there genuinely was prose).
+
+*Decided + implemented this round (M1 only)*:
+
+- =hooks/warn-oversized-atomic-src.sh= — diff-only, default *warn*. Flags
+  only a >120-line atomic =:tangle= block the *current* edit newly
+  introduces; effective tangle resolved via inline / nearest-ancestor
+  =:header-args:= / file =#+PROPERTY:=; exempts noweb (=:noweb-ref= on block
+  or any ancestor, or a =<<chunk>>= body line — NOT =:noweb yes=, which is
+  a file-level global), non-code extensions, and =:LITERATE_ORG_PIN:= /
+  =:LITERATE_ORG_NO_SPLIT:= sections. Notes when =:tangle= is inline.
+- Registered as the 3rd PreToolUse =Edit|Write|MultiEdit= hook in
+  =hooks/hooks.json=.
+- Knobs: =LITERATE_AGENT_OVERSIZE_BLOCK_MODE= (warn|block|off, default warn),
+  =LITERATE_AGENT_RESPLIT_THRESHOLD= (120).
+- Verified: 8 unit fixtures + diff-only (existing big block → no warn; new
+  2nd block → warns only the new) + post-resplit =langsmith.org= → 0 +
+  end-to-end through the hooks.json wrapper on the incident-shaped payload
+  → warn, exit 0. Refined corpus count 479/90 (all suppressed by diff-only).
+
+*Dropped*: blanket Check A (inline-tangle, 589 FP) and blanket Check B
+(oversize, 515 FP). The inline-tangle note survives, folded into the hook's
+per-new-block message.
+
+*Deferred* (not selected this round): the =check_org_structure.py= parser
+fix (=HEADING_RE= matches =* = inside =#+begin_src=; independent latent bug)
+and the =/lp-import= skill (M4). Available when wanted.
+
+*Status*: implemented on =literate-agent= =main=, *uncommitted*.

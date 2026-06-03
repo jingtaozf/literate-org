@@ -11,6 +11,10 @@
           {
             "type": "command",
             "command": "bash -c '[ -f \"${CLAUDE_PROJECT_DIR}/.claude/hooks/_env.sh\" ] && { set -a; source \"${CLAUDE_PROJECT_DIR}/.claude/hooks/_env.sh\"; set +a; }; exec \"${CLAUDE_PLUGIN_ROOT}/hooks/block-bare-star-in-src.sh\"'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c '[ -f \"${CLAUDE_PROJECT_DIR}/.claude/hooks/_env.sh\" ] && { set -a; source \"${CLAUDE_PROJECT_DIR}/.claude/hooks/_env.sh\"; set +a; }; exec \"${CLAUDE_PLUGIN_ROOT}/hooks/warn-oversized-atomic-src.sh\"'"
           }
         ]
       },

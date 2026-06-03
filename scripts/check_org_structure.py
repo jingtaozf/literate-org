@@ -37,6 +37,7 @@ HEADING_RE = re.compile(r"^(\*+)\s+(.*?)\s*(?::[\w@:]+:)?$")
 GRAB_BAG_RE = re.compile(r"^(Functions|Helpers|Utilities|Misc|Things|Stuff)\s*$", re.I)
 TANGLE_REAL_RE = re.compile(r":tangle\s+([^\s:]+)")
 SRC_BEGIN_RE = re.compile(r"^\s*#\+begin_src\b", re.I)
+SRC_END_RE = re.compile(r"^\s*#\+end_src\b", re.I)
 DRAWER_BEGIN = ":PROPERTIES:"
 DRAWER_END = ":END:"
 KEYWORD_LINE_RE = re.compile(r"^\s*#\+\w")
@@ -91,10 +92,21 @@ class Section:
 def parse(file: Path) -> list[Section]:
     sections: list[Section] = []
     in_drawer = False
+    in_src = False
     cur_drawer_text = ""
     cur: Section | None = None
     text = file.read_text()
     for n, raw in enumerate(text.splitlines(), 1):
+        # Inside a #+begin_src block nothing is a heading or a drawer: a
+        # column-0 `* ` there is source content (e.g. a Python docstring
+        # bullet), not an Org headline. Treating it as a heading silently
+        # shreds the block and mismeasures every section after it.
+        if in_src:
+            if SRC_END_RE.match(raw):
+                in_src = False
+            if cur is not None:
+                cur.body_lines.append((n, raw))
+            continue
         m = HEADING_RE.match(raw)
         if m:
             if cur is not None:
@@ -119,6 +131,8 @@ def parse(file: Path) -> list[Section]:
         if in_drawer:
             cur_drawer_text += raw + "\n"
             continue
+        if SRC_BEGIN_RE.match(raw):
+            in_src = True
         cur.body_lines.append((n, raw))
     if cur is not None:
         if cur.tangle_target is None:
