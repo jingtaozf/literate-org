@@ -67,6 +67,50 @@ So comes this library to help me import Python modules from org files in Emacs.
                  (equal "org" (f-ext it)))
     (literate-org-mode 1)))
 #+END_SRC
+** typescript / web src formatter choice
+
+Mirror of =literate-org-py-formatter= for the *before-save per-block*
+path. =literate-org-format-code-block= formats tsx/ts/js/css/vue blocks via
+the formatter =literate-org-ts-formatter= selects: =prettier= (default) or
+=nil= (skip — keeps a block's tangle output byte-identical to a vendored
+source, e.g. a fork mirrored into the LP layer). Override per file on the
+first line:
+
+#+begin_example
+,# -*- mode: org; literate-org-ts-formatter: nil -*-
+#+end_example
+
+Dispatch uses =cl-defgeneric literate-org-format-ts-at-point=, the same
+multimethod shape as =literate-org-format-py=; register a new formatter
+with an =(eql NAME)= method without touching this section.
+
+#+BEGIN_SRC elisp
+(defcustom literate-org-ts-formatter 'prettier
+  "Formatter `literate-org-format-code-block' applies to tsx/ts/js/css/vue
+src blocks on save. Built-in: `prettier' (default), or nil to skip. Set nil
+(e.g. as a first-line file-local variable) to keep tangle output
+byte-identical to a vendored source — no formatter."
+  :type '(choice (const :tag "Prettier"        prettier)
+                 (const :tag "None (skip)"     nil)
+                 (symbol :tag "Custom (user-defined method)"))
+  :group 'literate-org
+  :safe #'symbolp)
+
+(cl-defgeneric literate-org-format-ts-at-point (formatter)
+  "Format the tsx/ts/js/css/vue src block at point using FORMATTER (a
+symbol). Dispatch via `(eql FORMATTER)'; an unknown FORMATTER signals
+`cl-no-applicable-method'.")
+
+(cl-defmethod literate-org-format-ts-at-point ((_formatter (eql nil)))
+  "Explicit opt-out; do nothing." nil)
+
+(cl-defmethod literate-org-format-ts-at-point ((_formatter (eql prettier)))
+  (let ((prettier-major-mode-parsers
+         (append '((vue-html-mode vue)
+                   (tsx-ts-mode typescript))
+                 prettier-major-mode-parsers)))
+    (prettier-prettify-org-src-code-at-point)))
+#+END_SRC
 ** format org code block when save
 #+BEGIN_SRC elisp
 (defun literate-org-format-code-block ()
@@ -78,11 +122,7 @@ So comes this library to help me import Python modules from org files in Emacs.
       (cond ((find language '("python" "ipython") :test #'equalp)
              (python-black-org-mode-block t))
             ((find language '("tsx" "ts" "js" "vue" "vue-html" "css") :test #'equalp)
-             (let ((prettier-major-mode-parsers
-                    (append '((vue-html-mode vue)
-                              (tsx-ts-mode typescript))
-                            prettier-major-mode-parsers)))
-               (prettier-prettify-org-src-code-at-point)))
+             (literate-org-format-ts-at-point literate-org-ts-formatter))
             ((null language) (error "Unsupported language %s" language))))))
 #+END_SRC
 ** format all org code blocks in current buffer
