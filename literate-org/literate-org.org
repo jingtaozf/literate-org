@@ -3113,6 +3113,32 @@ definitions in its block, or nil if fewer than two are over the floor."
      (let ((nm (tsc-get-child-by-field node :name)))
        (if nm (tsc-node-text nm) "fn"))
      2)))
+
+;; export_statement — unwrap `export class' / `export function' and split
+;; the inner declaration's body. --split-braced derives the skeleton
+;; signature from the start of the node it is given, so we pass the OUTER
+;; export_statement (sig = "export class Foo "), never the inner decl —
+;; the inner-only sig would drop the `export ' keyword and tangle a
+;; non-exported class. A non-class/function export (e.g. `export const')
+;; matches neither pcase arm and falls through to atomic.
+(cl-defmethod literate-org-split-node ((_l (eql typescript)) (_t (eql export_statement)) node)
+  (let ((decl (tsc-get-child-by-field node :declaration)))
+    (when decl
+      (pcase (tsc-node-type decl)
+        ('class_declaration
+         (awhen (literate-org--child-of-type decl 'class_body)
+           (literate-org--split-braced
+            node it '(method_definition public_field_definition)
+            (let ((ty (literate-org--child-of-type decl 'type_identifier)))
+              (if ty (tsc-node-text ty) "Class"))
+            2)))
+        ('function_declaration
+         (awhen (literate-org--child-of-type decl 'statement_block)
+           (literate-org--split-braced
+            node it '(function_declaration)
+            (let ((nm (tsc-get-child-by-field decl :name)))
+              (if nm (tsc-node-text nm) "fn"))
+            2)))))))
 #+END_SRC
 
 ***** Tiling a container body into leaf chunks
@@ -3126,9 +3152,34 @@ blank lines) that a node-only rebuild would drop. Each leaf is dedented
 so Org-Babel can re-indent it under the skeleton placeholder.
 
 #+BEGIN_SRC elisp
+(defun literate-org--start-incl-doc (ms)
+  "Start of the contiguous run of blank + comment lines directly above the
+member at MS, or MS when the line above is code. Pulling each big member's
+leading separator + doc-comment into its OWN leaf is what makes the noweb
+join round-trip: every leaf then opens with a blank line, so the join +
+the project formatter render exactly one blank between members and the
+doc-comment hugs its method. Leaving the comment in the preceding
+`members' slice instead orphaned it — the join blank-separated comment
+from method (extra blank), and consecutive method leaves touched (missing
+blank). Operates in the temp buffer --file-units fills with the body."
+  (save-excursion
+    (goto-char ms)
+    (beginning-of-line)
+    (let ((start ms) (bol (point)))
+      (catch 'stop
+        (while (> bol (point-min))
+          (forward-line -1)
+          (setq bol (point))
+          (if (looking-at "[ \t]*\\(//\\|/\\*\\|\\*\\|$\\)")
+              (setq start bol)
+            (throw 'stop nil))))
+      start)))
+
 (defun literate-org--tile-leaves (split)
   "Tile the container interior described by SPLIT into a list of
-(TITLE . BODY) leaves, big members isolated and small runs grouped."
+(TITLE . BODY) leaves, big members isolated (with their leading blank +
+doc-comment run, see `literate-org--start-incl-doc') and small runs
+grouped."
   (let* ((indent (plist-get split :indent))
          (istart (plist-get split :istart))
          (iend (plist-get split :iend))
@@ -3137,14 +3188,15 @@ so Org-Babel can re-indent it under the skeleton placeholder.
          (cursor istart) (leaves nil))
     (dolist (b big)
       (cl-destructuring-bind (ms me ttl) b
-        (when (> ms cursor)
-          (let ((seg (literate-org--dedent
-                      (buffer-substring-no-properties cursor ms) indent)))
-            (unless (string-blank-p seg) (push (cons "members" seg) leaves))))
-        (push (cons ttl (literate-org--dedent
-                         (buffer-substring-no-properties ms me) indent))
-              leaves)
-        (setq cursor me)))
+        (let ((msx (literate-org--start-incl-doc ms)))
+          (when (> msx cursor)
+            (let ((seg (literate-org--dedent
+                        (buffer-substring-no-properties cursor msx) indent)))
+              (unless (string-blank-p seg) (push (cons "members" seg) leaves))))
+          (push (cons ttl (literate-org--dedent
+                           (buffer-substring-no-properties msx me) indent))
+                leaves)
+          (setq cursor me))))
     (when (< cursor iend)
       (let ((seg (literate-org--dedent
                   (buffer-substring-no-properties cursor iend) indent)))
@@ -3215,10 +3267,12 @@ section sits too deep for its leaves to stay within the depth-5 cap.
 Walks the unit list and writes Org. An =atomic= unit is a sub-heading
 with a bare =:padline no= src block that inherits the file section's
 =:tangle=. A =noweb= unit is a skeleton sub-heading (its own
-=:header-args: :tangle no :noweb-ref REF= so the leaves inherit it, plus
-=:CUSTOM_ID:= + =:LITERATE_ORG_BLOCK_KIND: skeleton:=) whose one block
-tangles the envelope with =:noweb yes=, followed by one =noweb-leaf=
-sub-sub-heading per chunk. Bodies are re-escaped so a column-0 =*= /
+*language-specific* =:header-args:LANG: :tangle no :noweb-ref REF= so
+the leaves inherit it — suffix-less would lose to a file-level
+=header-args:LANG= property in org-babel's merge order and tangle every
+leaf bare; plus =:CUSTOM_ID:= + =:LITERATE_ORG_BLOCK_KIND: skeleton:=)
+whose one block tangles the envelope with =:noweb yes=, followed by one
+=noweb-leaf= sub-sub-heading per chunk. Bodies are re-escaped so a column-0 =*= /
 =#+= cannot terminate the block, and stamped =:LITERATE_ORG_CONTAINS_DEFS:=
 is left to =lp_metadata_refresh.py=.
 
@@ -3256,8 +3310,15 @@ remainder after the language (e.g. \" :padline no\")."
            (let ((cid (literate-org--anchor
                        (replace-regexp-in-string "-body\\'" "" ref))))
              (insert (make-string clevel ?*) " " title "\n")
+             ;; Language-specific drawer (=:header-args:LANG:=), NOT the
+             ;; suffix-less form: org-babel merges language-specific
+             ;; properties AFTER suffix-less ones, so a file-level
+             ;; =#+PROPERTY: header-args:LANG :tangle <path>= (the common
+             ;; LP layout) would override a suffix-less section-level
+             ;; ":tangle no" and tangle every leaf bare to module level.
              (insert ":PROPERTIES:\n:CUSTOM_ID: " cid
-                     "\n:LITERATE_ORG_BLOCK_KIND: skeleton\n:header-args: :tangle no :noweb-ref "
+                     "\n:LITERATE_ORG_BLOCK_KIND: skeleton\n:header-args:" lang
+                     ": :tangle no :noweb-ref "
                      ref "\n:END:\n")
              (insert "Prose pending (auto-split): =" title "= skeleton.\n\n")
              (literate-org--emit-src lang envelope
@@ -3282,6 +3343,20 @@ split is the point); a section with nothing worth isolating raises
 =user-error=.
 
 #+BEGIN_SRC elisp
+(defun literate-org--block-tangle-target (el)
+  "The merged :tangle target of src-block EL, or nil when absent/\"no\".
+Resolved via `org-babel-get-src-block-info' so every layer org-babel
+itself honours — file-level #+PROPERTY (suffix-less AND language-
+specific =header-args:LANG=), section drawers, the block line —
+participates. The previous hand-rolled `org-entry-get \"header-args\"'
+lookup missed language-specific file-level properties entirely, which
+made resplit refuse the most common LP file layout."
+  (save-excursion
+    (goto-char (org-element-property :begin el))
+    (let* ((info (org-babel-get-src-block-info 'no-eval))
+           (tangle (cdr (assq :tangle (nth 2 info)))))
+      (and (stringp tangle) (not (string= tangle "no")) tangle))))
+
 (defun literate-org--resplit-section ()
   "Split the atomic :tangle block in the section at point into per-unit
 sub-headings (top-level definitions atomic; big classes noweb). Returns
@@ -3291,23 +3366,20 @@ splitting."
   (widen)
   (org-back-to-heading t)
   (let* ((level (org-current-level))
-         (header-args (org-entry-get (point) "header-args" t))
-         (tangle (and header-args
-                      (string-match ":tangle +\\(\\S-+\\)" header-args)
-                      (match-string 1 header-args)))
          (heading (point-marker)))
-    (unless (and tangle (not (string= tangle "no")))
-      (user-error "No :tangle target — nothing to resplit"))
     (when (>= level 5)
       (user-error "Section at depth %d — children would breach the depth-5 cap" level))
     (let ((el (literate-org--first-src-block-in-subtree)))
       (unless el
         (user-error "No src block in this section"))
-      (let* ((lang (intern (or (org-element-property :language el) "python")))
+      (let* ((tangle (literate-org--block-tangle-target el))
+             (lang (intern (or (org-element-property :language el) "python")))
              (body (org-element-property :value el))
              (units (literate-org--file-units body lang level))
              (beg (org-element-property :begin el))
              (end (org-element-property :end el)))
+        (unless tangle
+          (user-error "No :tangle target — nothing to resplit"))
         (when (or (null units)
                   (and (= (length units) 1) (eq (caar units) 'atomic)))
           (user-error "Nothing worth splitting in this section"))
@@ -3468,6 +3540,47 @@ output matches SRC's non-blank content."
              (concat "class Foo extends Base {\n  x = 1;\n  small(): number { return 1; }\n"
                      (funcall m "big1") (funcall m "big2") "}\n")))))
 
+;; export class / export function unwrap (export_statement split-node):
+;; the skeleton envelope must keep the `export ' keyword so the tangled
+;; output round-trips byte-for-byte. Without the outer-node sig the
+;; envelope would emit a bare `class Foo' and drop the export.
+(ert-deftest literate-org-resplit-typescript-export-class-noweb ()
+  (let ((m (lambda (n) (concat "  " n "(): number {\n"
+                               (mapconcat (lambda (i) (format "    const s%d = %d;" i i))
+                                          (number-sequence 1 12) "\n")
+                               "\n    return s1;\n  }\n"))))
+    (should (literate-org--roundtrip-content-eq
+             'typescript
+             (concat "export class Foo extends Base {\n  x = 1;\n  small(): number { return 1; }\n"
+                     (funcall m "big1") (funcall m "big2") "}\n")))))
+
+(ert-deftest literate-org-resplit-typescript-export-fn-noweb ()
+  (let ((m (lambda (n) (concat "  function " n "(): number {\n"
+                               (mapconcat (lambda (i) (format "    const s%d = %d;" i i))
+                                          (number-sequence 1 12) "\n")
+                               "\n    return s1;\n  }\n"))))
+    (should (literate-org--roundtrip-content-eq
+             'typescript
+             (concat "export function outer(): number {\n  const pre = 0;\n"
+                     (funcall m "a") (funcall m "b") "  return a() + b();\n}\n")))))
+
+;; A big method's leading doc-comment must travel into its OWN leaf (not an
+;; orphan `members' chunk that the noweb join blank-separates from the
+;; method). Asserts comment and signature land in the same leaf body.
+(ert-deftest literate-org-resplit-leading-comment-attaches ()
+  (let* ((m (lambda (n) (concat "  /** doc " n ". */\n  " n "(): number {\n"
+                                (mapconcat (lambda (i) (format "    const s%d = %d;" i i))
+                                           (number-sequence 1 12) "\n")
+                                "\n    return s1;\n  }\n")))
+         (body (concat "export class Foo {\n  x = 1;\n" (funcall m "big1") (funcall m "big2") "}\n"))
+         (units (literate-org--file-units body 'typescript 2))
+         (leaves (nth 4 (car units))))
+    (should (eq 'noweb (caar units)))
+    (should (cl-some (lambda (lf) (and (string-match-p "doc big1" (cdr lf))
+                                       (string-match-p "big1(" (cdr lf)))) leaves))
+    (should (cl-some (lambda (lf) (and (string-match-p "doc big2" (cdr lf))
+                                       (string-match-p "big2(" (cdr lf)))) leaves))))
+
 ;; Regression: a skeleton CUSTOM_ID equal to its :noweb-ref made Org
 ;; resolve <<Foo-body>> against the CUSTOM_ID target and expand it to
 ;; the whole subtree. The anchor must derive from the class name, not
@@ -3500,6 +3613,50 @@ output matches SRC's non-blank content."
                 (literate-org--emit-units units 'python "/tmp/x.py" 1)
                 (buffer-string))))
     (should-not (string-match "#\\+BEGIN_SRC[^\n]*\n[ \t\n]*#\\+END_SRC" org))))
+
+;; Regression: the most common LP layout — a *language-specific* file-level
+;; =#+PROPERTY: header-args:python :tangle <path>= with no section drawer —
+;; broke resplit twice over. (1) The hand-rolled `org-entry-get
+;; "header-args"' lookup missed language-specific properties, so resplit
+;; refused with "No :tangle target". (2) Worked around with a suffix-less
+;; section-level property, every noweb leaf then tangled BARE to module
+;; level: org-babel merges language-specific properties after suffix-less
+;; ones, so the file-level :tangle overrode the skeleton's ":tangle no".
+;; The fix resolves :tangle via `org-babel-get-src-block-info' and emits
+;; the skeleton drawer in the language-specific form. End-to-end through
+;; `literate-org--resplit-section' + a real tangle.
+(ert-deftest literate-org-resplit-language-specific-file-property ()
+  (let* ((py (make-temp-file "lo-langspec" nil ".py"))
+         (orgf (make-temp-file "lo-langspec" nil ".org"))
+         (m (lambda (n) (concat "    def " n "(self):\n"
+                                (mapconcat (lambda (i) (format "        s%d = %d" i i))
+                                           (number-sequence 1 12) "\n")
+                                "\n        return s1\n")))
+         (src (concat "class Foo(Base):\n    \"\"\"doc.\"\"\"\n"
+                      (funcall m "big1") (funcall m "big2"))))
+    (with-temp-buffer
+      (insert "#+PROPERTY: header-args:python :results silent :noweb yes :tangle "
+              py " :mkdirp yes\n\n* f\nprose.\n\n#+begin_src python\n"
+              src "#+end_src\n")
+      (write-region (point-min) (point-max) orgf))
+    (let ((buf (find-file-noselect orgf)))
+      (unwind-protect
+          (with-current-buffer buf
+            (goto-char (point-min))
+            (search-forward "class Foo")
+            (should (> (literate-org--resplit-section) 0)) ; (1) no refusal
+            (save-buffer))
+        (kill-buffer buf)))
+    (delete-file py)
+    (let ((org-confirm-babel-evaluate nil)) (org-babel-tangle-file orgf))
+    (let ((out (with-temp-buffer (insert-file-contents py) (buffer-string))))
+      ;; (2) no leaf tangled bare to module level
+      (should (= 0 (with-temp-buffer
+                     (insert out)
+                     (count-matches "^def big" (point-min) (point-max)))))
+      (cl-flet ((nb (s) (seq-remove #'string-empty-p
+                                    (mapcar #'string-trim (split-string s "\n")))))
+        (should (equal (nb src) (nb out)))))))
 
 ;; Regression: `literate-org-resplit-buffer' collected via org-map-entries,
 ;; which is slow and raises "Invalid search bound" on big poly-org buffers.
@@ -4419,7 +4576,8 @@ of this verbatim: one =typescript= node-name method delegates to the
     (type_alias_declaration . "Type")
     (enum_declaration       . "Enum")
     (interface_declaration  . "Interface")
-    (variable_declarator    . "Variable"))
+    (variable_declarator    . "Variable")
+    (class_declaration      . "Class"))
   "TSX node types whose section title is \"<label> <:name>\".")
 
 (defconst literate-org-tsx--constant-labels
