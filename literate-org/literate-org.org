@@ -3236,24 +3236,44 @@ section sits too deep for its leaves to stay within the depth-5 cap.
            (cursor (point-min)) (units nil))
       (cl-loop for i below count
                for node = (tsc-get-nth-child root i) do
-               (when (> (literate-org--node-line-count node) floor)
-                 (let ((ns (tsc-node-start-position node))
-                       (ne (tsc-node-end-position node)))
-                   (when (> ns cursor)
-                     (let ((seg (buffer-substring-no-properties cursor ns)))
+               (when (and (> (literate-org--node-line-count node) floor)
+                          ;; Imports, bare module-level statements, and comments
+                          ;; are never their own unit even when long — they
+                          ;; accumulate into the surrounding `members' slice, so
+                          ;; :padline yes does not blank-separate them (a big
+                          ;; multi-line import or a dispatch `if' otherwise
+                          ;; became a spurious section + leading blank).
+                          (not (memq (tsc-node-type node)
+                                     '(import_statement import_from_statement
+                                       future_import_statement use_declaration
+                                       expression_statement comment
+                                       ;; top-level control flow (e.g. a CLI
+                                       ;; dispatch `if') is module-entry code,
+                                       ;; not a definition worth its own section
+                                       if_statement for_statement for_in_statement
+                                       while_statement do_statement switch_statement
+                                       try_statement with_statement match_statement))))
+                 (let* ((ns (tsc-node-start-position node))
+                        (ne (tsc-node-end-position node))
+                        (split (and allow-noweb
+                                    (literate-org-split-node
+                                     language (tsc-node-type node) node)))
+                        ;; Atomic flat units swallow their leading blank +
+                        ;; comment run so :padline yes puts the blank BEFORE the
+                        ;; comment, not between comment and its definition.
+                        (bstart (if split ns (literate-org--start-incl-doc ns))))
+                   (when (> bstart cursor)
+                     (let ((seg (buffer-substring-no-properties cursor bstart)))
                        (unless (string-blank-p seg)
                          (push (list 'atomic "members" seg) units))))
-                   (let ((split (and allow-noweb
-                                     (literate-org-split-node
-                                      language (tsc-node-type node) node))))
-                     (if split
-                         (push (list 'noweb (literate-org--unit-title language node)
-                                     (plist-get split :ref) (plist-get split :envelope)
-                                     (literate-org--tile-leaves split))
-                               units)
-                       (push (list 'atomic (literate-org--unit-title language node)
-                                   (buffer-substring-no-properties ns ne))
-                             units)))
+                   (if split
+                       (push (list 'noweb (literate-org--unit-title language node)
+                                   (plist-get split :ref) (plist-get split :envelope)
+                                   (literate-org--tile-leaves split))
+                             units)
+                     (push (list 'atomic (literate-org--unit-title language node)
+                                 (buffer-substring-no-properties bstart ne))
+                           units))
                    (setq cursor ne))))
       (when (< cursor (point-max))
         (let ((seg (buffer-substring-no-properties cursor (point-max))))
@@ -3265,8 +3285,12 @@ section sits too deep for its leaves to stay within the depth-5 cap.
 ***** Emitting the units
 
 Walks the unit list and writes Org. An =atomic= unit is a sub-heading
-with a bare =:padline no= src block that inherits the file section's
-=:tangle=. A =noweb= unit is a skeleton sub-heading (its own
+with a =:padline yes= src block that inherits the file section's
+=:tangle=. =:padline yes= (org-babel's own default) re-adds one blank
+line before each unit's content at tangle — Org-Babel chomps a block
+body's leading/trailing blanks, so a flat split's inter-definition blank
+lines cannot ride in the body and *must* be reconstructed by padline; a
+formatter then normalises the count. A =noweb= unit is a skeleton sub-heading (its own
 *language-specific* =:header-args:LANG: :tangle no :noweb-ref REF= so
 the leaves inherit it — suffix-less would lose to a file-level
 =header-args:LANG= property in org-babel's merge order and tangle every
@@ -3299,7 +3323,7 @@ remainder after the language (e.g. \" :padline no\")."
          (cl-destructuring-bind (_ title body) u
            (insert (make-string clevel ?*) " " title "\n")
            (insert "Prose pending (auto-split): " title ".\n\n")
-           (literate-org--emit-src lang body " :padline no")))
+           (literate-org--emit-src lang body " :padline yes")))
         ('noweb
          (cl-destructuring-bind (_ title ref envelope leaves) u
            ;; CUSTOM_ID must NOT equal the noweb-ref: Org resolves
@@ -3580,6 +3604,31 @@ output matches SRC's non-blank content."
                                        (string-match-p "big1(" (cdr lf)))) leaves))
     (should (cl-some (lambda (lf) (and (string-match-p "doc big2" (cdr lf))
                                        (string-match-p "big2(" (cdr lf)))) leaves))))
+
+;; Flat split of >=2 top-level functions keeps ONE blank line between them
+;; at tangle. Org-Babel chomps each block body's edge blanks, so the
+;; separator can only come from :padline yes — :padline no crammed
+;; consecutive functions onto adjacent lines (no formatter re-inserts it).
+(ert-deftest literate-org-resplit-flat-fn-blank-preserved ()
+  (let* ((fn (lambda (n) (concat "function " n "(): number {\n"
+                                 (mapconcat (lambda (i) (format "  const s%d = %d;" i i))
+                                            (number-sequence 1 12) "\n")
+                                 "\n  return s1;\n}\n")))
+         (src (concat (funcall fn "a") "\n" (funcall fn "b")))
+         (units (literate-org--file-units src 'typescript 1))
+         (path (make-temp-file "lo-flat" nil ".ts"))
+         (orgf (make-temp-file "lo-flat" nil ".org")))
+    (should (>= (length units) 2))
+    (with-temp-buffer
+      (insert "#+PROPERTY: header-args :tangle no\n* f\n:PROPERTIES:\n:header-args: :tangle "
+              path "\n:END:\nprose.\n")
+      (literate-org--emit-units units 'typescript path 1)
+      (write-region (point-min) (point-max) orgf))
+    (let ((org-confirm-babel-evaluate nil)) (org-babel-tangle-file orgf))
+    (let ((out (with-temp-buffer (insert-file-contents path) (buffer-string))))
+      (delete-file path) (delete-file orgf)
+      (should (string-match-p "}\n\n+function b" out))
+      (should-not (string-match-p "}\nfunction b" out)))))
 
 ;; Regression: a skeleton CUSTOM_ID equal to its :noweb-ref made Org
 ;; resolve <<Foo-body>> against the CUSTOM_ID target and expand it to
