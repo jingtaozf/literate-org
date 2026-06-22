@@ -557,6 +557,7 @@ class OrgFileParser:
         # time; the parser must mirror it for consumers (V3 noweb
         # integrity, sync engine block-owner lookup).
         self._propagate_header_args_inheritance(org)
+        self._propagate_file_level_tangle(org)
 
         return org
 
@@ -595,6 +596,48 @@ class OrgFileParser:
             # Push own drawer header-args onto ancestor stack
             if block.drawer_header_args:
                 ancestor_args.append((depth, block.drawer_header_args))
+
+    def _propagate_file_level_tangle(self, org: 'OrgFile') -> None:
+        """Apply file-level ``#+PROPERTY: header-args[:lang] ... :tangle PATH``
+        as the lowest-priority tangle source for src blocks that declared no
+        :tangle of their own (and did not opt out with ``:tangle no``).
+
+        Mirrors org-mode: a file-level header-args tangle path applies to
+        every matching-language src block unless the block overrides it.
+        Without this, files that declare tangle ONLY at the ``#+PROPERTY``
+        level (no per-heading ``:header-args`` drawer) leave every
+        ``block.tangle_path`` unset, and source-repo resolution fails with
+        "skip-no-source".
+        """
+        # Build {lang -> tangle_path} from file-level header-args properties.
+        # Key shapes: "header-args" (all langs) or "header-args:python".
+        file_tangle: dict[str, str] = {}
+        for key, val in org.file_props.items():
+            kl = key.lower()
+            if kl != "header-args" and not kl.startswith("header-args:"):
+                continue
+            tm = TANGLE_RE.search(val)
+            if not tm or tm.group(1) == "no":
+                continue
+            lang = kl.split(":", 1)[1] if ":" in kl else ""
+            file_tangle[lang] = tm.group(1)
+        if not file_tangle:
+            return
+
+        for block in org.blocks:
+            # Only src-bearing blocks tangle; drawer-only headings don't.
+            if not block.src_begin_line:
+                continue
+            if block.tangle_path:
+                continue
+            # Respect an explicit per-block opt-out (:tangle no).
+            own = block.block_header_args + " " + block.drawer_header_args
+            if re.search(r":tangle\s+no\b", own):
+                continue
+            # Language-specific property wins over the generic one.
+            path = file_tangle.get(block.src_lang) or file_tangle.get("")
+            if path:
+                block.tangle_path = path
 
 
 # ──────────────────────────────────────────────────────────────────
